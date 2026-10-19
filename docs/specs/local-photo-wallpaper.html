@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AWell · 本地照片动态壁纸 Spec</title>
+<style>
+:root{color-scheme:light;--ink:#182526;--muted:#586768;--line:#dce3df;--accent:#176654;--paper:#fff;--bg:#f3f5f0}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.85 system-ui,-apple-system,"PingFang SC",sans-serif}main{max-width:1080px;margin:40px auto;padding:48px;background:var(--paper);border:1px solid var(--line);border-radius:16px}header{border-bottom:2px solid var(--accent);padding-bottom:24px}h1{font-size:32px;line-height:1.4;margin:10px 0}h2{font-size:23px;margin:38px 0 14px}h3{font-size:18px;margin:24px 0 8px}p{margin:10px 0}.meta,.muted{color:var(--muted)}.tag{color:var(--accent);font-size:13px;font-weight:700;letter-spacing:.08em}.note{background:#eff6f0;border-left:4px solid var(--accent);padding:14px 20px;margin:20px 0}table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}th,td{text-align:left;vertical-align:top;border:1px solid var(--line);padding:10px 13px}th{background:#f3f6f3}code{background:#f0f3f1;padding:2px 5px;border-radius:4px;font-size:.9em;overflow-wrap:anywhere}pre{padding:18px;background:#172c28;color:#e9f4ec;overflow:auto;line-height:1.7;border-radius:8px}pre code{background:none;padding:0}a{color:var(--accent)}li{margin:6px 0}.scroll{overflow-x:auto}footer{border-top:1px solid var(--line);margin-top:40px;padding-top:18px;font-size:13px;color:var(--muted)}@media(max-width:700px){main{margin:0;padding:24px 18px;border:0;border-radius:0}h1{font-size:26px}table{min-width:580px}}@media print{body{background:white}main{border:0;margin:0;padding:0;max-width:none}h2,h3{break-after:avoid}tr{break-inside:avoid}}
+</style>
+</head>
+<body><main>
+<header><div class="tag">AWELL / FEATURE SPEC / DRAFT</div><h1>本地照片动态壁纸</h1><p>选择本地照片目录，在现有随机矩形背景上叠加照片，并在每次解锁后随机更换。</p><div class="meta">版本 0.3 · 2026-10-19 · 基于当前仓库代码 · 本文为设计稿，尚未实现</div></header>
+
+<h2>1. 目标与范围</h2>
+<ol><li>用户通过系统目录选择器选中一个本地目录，并授予应用持续访问该目录的权限。</li><li>保留黑色底色与 10 个随机彩色矩形的绘制规则；背景与照片使用同一次更新事件，每帧先绘制背景，再绘制当前照片。</li><li>每次用户完成解锁，从目录中随机选择照片；有多张可用照片时避免与当前照片相同。</li></ol>
+<div class="note"><strong>本版默认决策，待产品确认：</strong>“管理权限”解释为持久读取所选目录，不包含删除、移动或修改照片；照片居中等比完整显示。若需要目录写入管理或铺满裁切，应调整本文后再实现。目录范围已确认：递归包含所选目录下所有可访问的子目录。</div>
+<p>本版不增加定时换照片、网络图库、视频播放、切换动画或多目录管理。取消矩形背景每 60 秒独立刷新；背景与照片统一在解锁、首次初始化、目录变更或当前文件失效时更新。恢复可见和尺寸变化只重绘现有内容，不触发随机更新。</p>
+
+<h2>2. 当前实现与改动边界</h2>
+<div class="scroll"><table><thead><tr><th>位置</th><th>当前行为</th><th>本次设计</th></tr></thead><tbody>
+<tr><td><code>AWallpaperService.kt:68–91</code></td><td>清黑底，画 10 个随机矩形，可见时每 60 秒刷新。</td><td>提取背景生成与绘制，取消 60 秒刷新任务；每轮照片更新时生成新的矩形背景，并在同一帧中先画背景再画照片。</td></tr>
+<tr><td><code>AWallpaperService.kt:49–66</code></td><td>Surface 改变或恢复可见时重启绘制任务。</td><td>背景与照片沿用当前状态，仅重绘或适配尺寸；不能把恢复可见当作解锁。</td></tr>
+<tr><td><code>AWallpaperService.kt:25–46</code></td><td>每分钟清理内部 pictures 目录中超过 7 天的文件；下载代码已注释。</td><td>移除这条无实际下载用途的轮询，不对用户目录套用清理逻辑。</td></tr>
+<tr><td><code>MainActivity.kt / ui/MainScreen.kt</code></td><td>仅提供系统壁纸预览入口。</td><td>增加目录选择、目录状态和重新授权入口；保留壁纸预览入口。</td></tr>
+</tbody></table></div>
+<p>兼容范围沿用项目 <code>minSdk 23 / targetSdk 37</code>。本文不要求升级工具链，也不要求增加前台服务。</p>
+
+<h2>3. 用户流程与页面状态</h2>
+<ol><li>首页展示“照片目录：未选择”，提供“选择照片目录”和“设置动态壁纸”。未配置目录时仍可使用矩形壁纸。</li><li>点击选择目录，打开系统目录选择器；用户选择目录并确认授权。</li><li>持久授权成功后校验可读性并保存配置，异步递归扫描照片。页面展示目录名称、包含子目录的可用候选数量或错误原因。</li><li>目录可读即完成替换；空目录也可保存并明确提示。已运行的壁纸收到配置变化，清除旧目录照片并加载新目录的首张随机照片。</li><li>点击“设置动态壁纸”进入现有系统预览，由系统完成应用壁纸。</li><li>后续解锁自动换图，无需再次打开应用。更换目录复用同一选择器，取消操作保留原配置与照片。</li></ol>
+<div class="scroll"><table><thead><tr><th>状态</th><th>首页反馈</th><th>壁纸表现</th></tr></thead><tbody>
+<tr><td>未选择</td><td>选择照片目录</td><td>仅矩形背景</td></tr>
+<tr><td>扫描中</td><td>正在读取照片…</td><td>初次配置显示背景；同目录刷新保留当前图</td></tr>
+<tr><td>可用</td><td>目录名称、候选照片数量、更换目录</td><td>矩形背景 + 当前照片</td></tr>
+<tr><td>空目录 / 全部无法解码</td><td>该目录没有可用照片</td><td>仅矩形背景</td></tr>
+<tr><td>权限失效 / 目录不存在</td><td>无法访问目录，请重新选择</td><td>清除该目录照片，显示矩形背景</td></tr>
+<tr><td>存储暂不可用 / 读取超时</td><td>暂时无法读取，将在下次解锁时重试</td><td>可保留内存中的当前图；无图时显示背景</td></tr>
+</tbody></table></div>
+<p>数量表示符合筛选条件的候选文件数，不承诺每个文件都可成功解码。单个坏图只跳过，不将整个目录标记为权限失效；壁纸侧不反复弹 Toast。</p>
+
+<h2>4. 目录授权与文件访问</h2>
+<ul><li>使用 Storage Access Framework 的 <code>ACTION_OPEN_DOCUMENT_TREE</code>。通过结果中实际授予的标志调用 <code>takePersistableUriPermission</code>，持久化读取权限；无需申请全盘管理权限或额外的广泛媒体读取权限。</li><li>保存 <code>content://</code> tree URI，通过 <code>ContentResolver / DocumentsContract</code> 枚举和打开文件，不将 URI 转为文件系统绝对路径。</li><li>先取得并验证新目录的持久读取授权，再原子替换配置。授权失败保留旧配置；旧目录的任务退出后释放不再使用的旧授权。重复选择同一目录不得误释放当前授权。</li><li>遵守 Android 11 起系统对根目录、Download 目录及 Android/data、Android/obb 等位置的选择限制，提示用户选择可授权的照片文件夹，不绕过系统限制。</li><li>本版面向设备共享存储与可访问的 SD 卡目录；不开发云相册接入。系统提供者是否本地不能仅凭 URI 可靠断言；异常提供者走读取失败与超时回退。</li><li>URI 配置恢复后必须验证持久授权；备份恢复或重装不视为授权仍然存在。应用不得删除、移动、改写用户照片。</li></ul>
+<p class="muted">平台依据：<a href="https://developer.android.com/training/data-storage/shared/documents-files">Android · 目录访问、持久 URI 授权与系统限制</a>。</p>
+
+<h2>5. 照片筛选与随机规则</h2>
+<ul><li>递归枚举所选目录及所有可访问子目录中的普通图片文档；目录节点仅用于遍历，不作为照片候选，不加载视频或虚拟文档。按图片 MIME 类型筛选；提供者缺失或返回通用 MIME 时可按扩展名补充候选，最终以解码结果为准。</li><li>首版必验 JPEG、PNG、WebP；其他静态图片仅在当前系统解码器支持时使用。动图只显示首帧，不承诺动画与 RAW 支持；支持照片的 EXIF 旋转与镜像。</li><li>每次换图前递归刷新候选列表，使任意层级新增、删除的文件在下次成功扫描后生效。不后台轮询目录，也不保证外部改动立即反映到当前画面。</li><li>将各层级图片合并为同一个候选池，按文档身份去重；随机以照片为单位，不先随机选子目录，避免不同大小目录造成抽样偏差。多张时排除当前 URI 后均匀随机抽取；允许隔次重复，不保证遍历完所有照片才重复。</li><li>只有一张时持续显示该图；没有照片时显示矩形背景。首次配置或首次应用且无当前图时，立即随机选一张，不等待解锁。</li><li>解码失败的候选在本轮不再尝试；从剩余候选继续随机选择，直到成功或全部失败。本轮排除当前图的候选均失败时，允许保留仍可用的当前图。</li><li>一次换图任务设置可配置的总超时（建议初值 5 秒），超时则保留旧图并记录原因。文件已确定被删除、目录失效或已切换时不保留旧图。</li></ul>
+
+<p>遍历使用显式队列或栈，并按提供者与 document ID 记录已访问目录，避免深层目录导致调用栈溢出、重复遍历或循环引用；遍历仅限已授权的目录树，不访问树外位置。单个子目录不可读时跳过并标记“部分目录无法读取”，其余可访问目录继续参与；根目录授权失效仍按权限失效处理。</p>
+<p>扫描过程支持取消，总超时包含递归枚举与解码。超时不得将截断的候选列表标记为完整扫描结果，也不从截断列表抽样；保留上一组画面并提示扫描未完成，下次有效更新重试。不设置静默的遍历深度限制。</p>
+
+<h2>6. 绘制与资源约束</h2>
+<pre><code>一次有效帧
+  1. 清屏为黑色
+  2. 绘制当前 10 个随机矩形
+  3. 绘制已解码的当前照片（如有）
+  4. 提交 Canvas</code></pre>
+<p>矩形的数量、颜色范围与坐标随机规则保持，取消独立计时刷新。背景和照片共用更新请求：新照片准备完成后，生成新的 10 个随机矩形，并将背景与照片作为同一组状态原子提交，不能先显示新背景再等待照片。仅亮屏、恢复可见或 Surface 重建不重新随机生成矩形。</p>
+<p>每个更新请求只提交一次背景与照片状态。单图目录允许沿用唯一照片，空目录或未选目录允许无照片，这些情况下每轮有效更新仍生成一次背景。读取超时或全部候选解码失败且保留旧图时，整组旧画面保持不变；若必须清除失效照片，则将无照片状态与新背景一起提交。取消或过期请求不能单独改变背景。</p>
+<p>照片使用 <code>FIT_CENTER</code>：方向纠正后的尺寸为 w × h，画布为 W × H，缩放比 <code>s = min(W/w, H/h)</code>，居中绘制为 w·s × h·s。完整保留照片、允许放大，不拉伸，不额外加边框；未覆盖区域与透明区域透出矩形背景。照片恰好铺满时，背景被覆盖符合预期。</p>
+<ul><li>枚举、文件读取和解码在后台执行，禁止在广播回调、主线程或持有 Canvas 锁时进行 I/O。</li><li>按实际 Surface 尺寸降采样，禁止无条件解码原始超大图。仅保留当前显示图与一次候选图；建议合计像素缓冲预算不超过 <code>min(32 MiB, 应用最大堆 / 8)</code>，含方向变换临时缓冲，必要时进一步降采样。</li><li>串行提交绘制；仅在 Surface 有效且 Engine 可见时锁定 Canvas，成功获取后用 <code>try/finally</code> 确保提交释放。Surface 无效时保留状态，下一次可见时绘制。</li><li>新背景与新图准备好后原子替换整组画面，避免空白过渡；Bitmap 不得在绘制期间回收。不保留背景定时任务，不因每次恢复可见重新解码同尺寸照片。</li><li>Surface 尺寸变化时重算布局，必要时重新采样当前 URI，不重新随机选图或生成矩形；矩形保存归一化坐标，以适配新画布。Engine 销毁时取消任务并释放图片资源。</li></ul>
+
+<h2>7. 解锁与生命周期</h2>
+<p>以系统 <code>ACTION_USER_PRESENT</code> 作为解锁后用户可用事件，在 WallpaperService 存活期间动态注册接收器，并在销毁时注销。接收器只向状态协调器发送事件；不能在回调内扫描或解码。<code>onVisibilityChanged(true)</code> 只负责恢复绘制，不能直接触发随机换图。</p>
+<div class="scroll"><table><thead><tr><th>事件</th><th>照片行为</th></tr></thead><tbody>
+<tr><td>收到一次有效 USER_PRESENT</td><td>生成一次选择请求，基于最新目录换图并同步更新矩形背景；多个正式 Engine 共享同一轮照片选择与背景随机结果。</td></tr>
+<tr><td>解锁时壁纸被前台应用遮挡</td><td>记录待切换请求，待正式 Engine 可见时执行；多次不可见解锁合并为最近一次，不解码不可见中间帧。</td></tr>
+<tr><td>仅亮屏、仍在锁屏</td><td>不换图；生物识别或密码完成后收到事件才换。</td></tr>
+<tr><td>从应用返回桌面 / 横竖屏切换 / Surface 重建</td><td>沿用当前 URI 与矩形状态，只重绘、适配布局或重新采样。</td></tr>
+<tr><td>壁纸服务重建 / 重启设备</td><td>恢复目录与最近成功的照片 URI；仍有效则沿用，无效则重新选择。背景随恢复画面初始化一次。与系统首次可用事件合并，避免初始化和解锁产生两次可见切换。</td></tr>
+<tr><td>系统壁纸预览</td><td>可展示所选目录照片，但预览不消费正式解锁事件，不写正式最近照片，也不影响已应用壁纸。</td></tr>
+</tbody></table></div>
+<p>用目录版本与请求序号拒绝过期异步结果；切换目录、Engine 销毁或后续事件到达时，旧任务即使未及时取消也不得覆盖新状态。预览与正式壁纸分离；Service 级协调器只为正式 Engine 消费解锁事件。</p>
+<div class="note"><strong>平台边界：</strong>可见性不等于解锁。服务未存活时不能可靠回补全部历史解锁；进程恢复以恢复当前状态为准。无安全锁屏、厂商自定义锁屏及特定仅锁屏壁纸场景，须真机验证 USER_PRESENT 的投递时机。首版不把任意亮屏伪装成解锁；未投递该事件的设备不能宣称已满足自动换图验收。</div>
+<p class="muted">平台依据：<a href="https://developer.android.com/reference/android/content/Intent#ACTION_USER_PRESENT">Intent.ACTION_USER_PRESENT</a>；<a href="https://developer.android.com/reference/android/service/wallpaper/WallpaperService.Engine#onVisibilityChanged(boolean)">Engine 可见性回调</a>。本文事件合并、预览隔离与回退规则为项目设计决策。</p>
+
+<h2>8. 建议实现拆分</h2>
+<div class="scroll"><table><thead><tr><th>组件</th><th>职责</th></tr></thead><tbody>
+<tr><td>MainActivity / MainScreen</td><td>目录选择器、状态展示、预览入口；UI 通过状态与回调交互，不直接处理文件。</td></tr>
+<tr><td>PhotoDirectoryRepository</td><td>持久目录配置、授权检查与释放、递归枚举快照、状态流。轻量配置可用 SharedPreferences 封装，不为此引入数据库。</td></tr>
+<tr><td>PhotoSelector</td><td>基于候选与当前 URI 的随机选择，支持注入随机源，独立于 Android 绘制生命周期。</td></tr>
+<tr><td>PhotoLoader</td><td>URI 读取、尺寸探测、采样解码、方向处理与资源预算。</td></tr>
+<tr><td>WallpaperPhotoCoordinator</td><td>Service 级正式照片与背景状态、解锁事件、待处理请求、版本与取消；共享 URI 与矩形随机状态，Bitmap 由各 Engine 按尺寸持有。</td></tr>
+<tr><td>AWallEngine / BackgroundRenderer</td><td>Engine 生命周期、矩形状态与尺寸适配、绘制合成与 Bitmap 生命周期；预览使用独立的临时选择状态。</td></tr>
+</tbody></table></div>
+<p>持久字段最少为：目录 URI、目录展示名、最近成功照片 URI。候选列表与 Bitmap 不持久化；运行时状态包含授权状态、目录版本、换图请求序号及待处理标记。只在成功提交最新选择后记录最近 URI；预览不得写入。</p>
+<p>日志只记录事件原因、请求序号、候选数、耗时与错误分类，不输出照片完整 URI 或文件名。移除旧下载清理轮询，不接入外部下载服务。</p>
+
+<h2>9. 验收标准与验证步骤</h2>
+<div class="scroll"><table><thead><tr><th>ID</th><th>步骤</th><th>预期</th></tr></thead><tbody>
+<tr><td>AC-01</td><td>首次启动，未选目录，打开壁纸预览并应用。</td><td>仍可使用原矩形背景，不因缺少照片失败。</td></tr>
+<tr><td>AC-02</td><td>选择含 3 张不同照片的本地目录，应用壁纸；重建进程并重启设备。</td><td>无需重复授权；恢复有效目录和照片，授权失效时有明确入口。</td></tr>
+<tr><td>AC-03</td><td>更换目录时取消选择；再模拟持久授权失败。</td><td>两种情况均保持旧配置与照片，不误释放旧授权。</td></tr>
+<tr><td>AC-04</td><td>分别加载横图、竖图、透明 PNG、带旋转/镜像方向的 JPEG。</td><td>照片方向正确、居中完整显示；空白和透明处透出矩形，绘制顺序正确。</td></tr>
+<tr><td>AC-05</td><td>配置 3 张可读照片，完成 10 次锁屏解锁；覆盖指纹/人脸与密码。</td><td>每次收到有效解锁事件仅切一次，与上一张不同；候选随机规则由可注入随机源验证。</td></tr>
+<tr><td>AC-06</td><td>仅亮屏停留锁屏；多次打开应用再回桌面；改变 Surface 尺寸。</td><td>背景和照片均不随机更新；尺寸改变只调整采样和布局。</td></tr>
+<tr><td>AC-07</td><td>壁纸持续可见超过 120 秒且不解锁，再完成一次解锁换图。</td><td>等待期间背景与照片均不变化；解锁后照片与新矩形背景在同一帧生效，不出现独立的定时刷新。</td></tr>
+<tr><td>AC-08</td><td>分别选择空目录、单图目录，以及照片分布在根目录和多层子目录、含坏图与非图片的目录；另测根目录无图但子目录有图。</td><td>空目录只显示背景；单图保持照片不变，但每轮有效解锁同步刷新背景；空目录在同样事件下更新背景；各层级可用照片均进入同一候选池；根目录无图不判为空目录；坏图跳过，非图片不参与。</td></tr>
+<tr><td>AC-08a</td><td>构造深层目录、重复目录引用、不可读子目录以及递归扫描超时；在子目录中增删照片后解锁。</td><td>无栈溢出或重复候选；不可读子目录不影响其余目录且标明部分不可读；超时保留整组旧画面；下一次成功扫描反映子目录增删。</td></tr>
+<tr><td>AC-09</td><td>删除当前照片、添加新照片后解锁；撤销授权或移除 SD 卡。</td><td>下一次扫描反映增删；权限失效回退背景，临时存储错误可恢复，无崩溃或反复提示。</td></tr>
+<tr><td>AC-10</td><td>前台应用遮挡桌面时解锁，再返回桌面；解锁与可见回调紧邻。</td><td>待处理请求在可见时生效，两个事件不造成重复换图。</td></tr>
+<tr><td>AC-11</td><td>模拟慢读取时快速更换目录、解锁及销毁 Surface；同时打开预览。</td><td>过期结果不能回写；无并发 Canvas 锁与资源误回收；预览不改变正式选择。</td></tr>
+<tr><td>AC-12</td><td>使用高像素照片与 1,000 个文件的目录，记录加载耗时和内存；隐藏壁纸。</td><td>无主线程 I/O、ANR 或原图无界解码；符合预算与超时回退；隐藏时停止定时绘制。</td></tr>
+</tbody></table></div>
+<p>纯逻辑测试覆盖随机边界与过期请求拒绝；设备测试覆盖 SAF 授权、重启恢复、解码与 Surface 生命周期。至少覆盖 API 23、30、33 与 targetSdk 37 对应系统，并在实际目标设备验收锁屏投递；缺失设备的结果明确标记未验证。以静态代码检查代替不了解锁真机验收。</p>
+
+<h2>10. 待确认项与交付顺序</h2>
+<ol><li><strong>权限含义：</strong>本版只读是否符合“管理权限”？若要删图或整理目录，需单独设计写权限与用户操作。</li><li><strong>照片布局：</strong>默认完整居中以显露背景；是否希望改为铺满裁切？</li><li><strong>目标锁屏行为：</strong>需在主要设备确认有锁/无锁、仅桌面/桌面与锁屏的预期与系统投递情况。</li></ol>
+<p>实现顺序：目录授权与配置 → 候选筛选和随机逻辑 → 采样解码与背景合成 → 解锁协调与生命周期 → 按验收表验证。完成标准为三项目标及上述异常路径可验收，未确认项按本稿默认值实现前应在评审中标明。</p>
+<footer>仓库依据：app/src/main/java/top/ntutn/awall/AWallpaperService.kt、MainActivity.kt、ui/MainScreen.kt、app/build.gradle.kts。源码现状已核对；本文不表示功能已实现或设备验证已完成。</footer>
+</main></body></html>

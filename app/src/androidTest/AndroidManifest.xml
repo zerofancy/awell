@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Isolated fixture provider, packaged only in the instrumented-test APK. -->
+        <provider
+            android:name="top.ntutn.awall.FixtureDocumentsProvider"
+            android:authorities="top.ntutn.awell.test.photos"
+            android:exported="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS"
+            android:grantUriPermissions="true" />
+        <activity android:name="top.ntutn.awall.FixtureGrantActivity"
+            android:exported="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+    </application>
+</manifest>

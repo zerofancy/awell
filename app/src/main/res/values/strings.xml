@@ -1,6 +1,20 @@
 <resources>
     <string name="app_name">AWell</string>
-    <string name="wallpaper_preview_button">Button</string>
+    <string name="wallpaper_preview_button">设置动态壁纸</string>
     <string name="wallpaper_preview_unavailable">无法打开动态壁纸预览，请检查设备是否支持动态壁纸。</string>
     <string name="wallpaper_preview_restricted">系统限制了动态壁纸预览的访问，请检查设备设置。</string>
+    <string name="photo_directory_title">照片目录</string>
+    <string name="directory_not_selected">未选择</string>
+    <string name="directory_hint">选择一个本地目录，将包含所有子目录中的照片。</string>
+    <string name="directory_scanning">正在读取照片…</string>
+    <string name="directory_ready">找到 %1$d 张候选照片（包含子目录）</string>
+    <string name="directory_empty">该目录没有可用照片</string>
+    <string name="directory_inaccessible">无法访问目录，请重新选择</string>
+    <string name="directory_retry">暂时无法读取或扫描未完成，将在下次解锁时重试</string>
+    <string name="directory_partial">部分目录无法读取，已跳过</string>
+    <string name="select_directory">选择照片目录</string>
+    <string name="change_directory">重新选择照片目录</string>
+    <string name="photo_wallpaper_hint">每次解锁随机更换照片与矩形背景。照片完整居中显示，原始文件不会被修改。</string>
+    <string name="directory_selection_failed">目录授权或保存失败，已保留原来的配置，请重新选择。</string>
+    <string name="directory_picker_unavailable">此设备无法打开系统目录选择器。</string>
 </resources>

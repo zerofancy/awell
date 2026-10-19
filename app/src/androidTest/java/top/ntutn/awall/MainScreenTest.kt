@@ -35,7 +35,7 @@ class MainScreenTest {
             }
         }
         composeRule.onNodeWithText("AWell").assertIsDisplayed()
-        composeRule.onNodeWithText("Button").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("设置动态壁纸").assertIsDisplayed().performClick()
         composeRule.runOnIdle { assertEquals(1, previewRequests) }
     }
 }
