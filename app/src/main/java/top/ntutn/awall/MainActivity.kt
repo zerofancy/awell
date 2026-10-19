@@ -1,9 +1,11 @@
 package top.ntutn.awall
 
 import android.app.WallpaperManager
+import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import top.ntutn.awall.databinding.ActivityMainBinding
 
@@ -17,12 +19,19 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         binding.button.setOnClickListener {
-            val intent = Intent()
-            intent.action = WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER
-//            val p = AWallpaperService::class.java.`package`?.name ?: return@setOnClickListener
-//            val c = AWallpaperService::class.java.canonicalName ?: return@setOnClickListener
-//            intent.putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT, ComponentName(p, c))
-            startActivityForResult(intent, 0)
+            val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
+                putExtra(
+                    WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                    ComponentName(this@MainActivity, AWallpaperService::class.java)
+                )
+            }
+            try {
+                startActivity(intent)
+            } catch (_: ActivityNotFoundException) {
+                Toast.makeText(this, R.string.wallpaper_preview_unavailable, Toast.LENGTH_LONG).show()
+            } catch (_: SecurityException) {
+                Toast.makeText(this, R.string.wallpaper_preview_restricted, Toast.LENGTH_LONG).show()
+            }
         }
     }
 }
