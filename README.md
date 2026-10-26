@@ -15,6 +15,8 @@
 
 ## 验证
 
+Release 默认通过系统钥匙圈签名，首次配置见 [Gradle 钥匙圈签名说明](docs/keyring-signing.html)。配置完成后直接运行 `./gradlew :app:assembleRelease`。
+
 ```sh
 ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 ./gradlew :app:connectedDebugAndroidTest

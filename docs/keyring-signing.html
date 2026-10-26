@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AWell · Gradle 钥匙圈签名</title>
+  <style>
+    body { max-width: 880px; margin: 48px auto; padding: 0 24px; color: #223047; background: #f6f8fc; font: 16px/1.75 system-ui, sans-serif; }
+    h1, h2 { line-height: 1.3; }
+    h2 { margin-top: 36px; }
+    pre { overflow: auto; padding: 20px; color: #edf3ff; background: #162239; border-radius: 12px; font-size: 14px; }
+    code { font-family: ui-monospace, monospace; }
+    a { color: #1765ba; }
+    .note { padding: 12px 20px; background: #eaf1fc; border-left: 4px solid #4380d5; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { padding: 10px; text-align: left; border-bottom: 1px solid #ccd7e7; }
+  </style>
+</head>
+<body>
+  <h1>Gradle 钥匙圈签名</h1>
+  <p>AWell 使用 <a href="https://github.com/konecny-ondrej/gradle-keyring">Gradle Keyring 0.2</a> 读取系统钥匙圈中的 keystore 密码和私钥密码，接法参考
+    <a href="https://github.com/zerofancy/so-novel-reader/commit/1af53e7">so-novel-reader 的接入</a>。</p>
+  <p><strong>Release 默认启用签名。</strong>配置缺失会明确失败，不会自动回退到未签名包。Debug 仍使用 Android 默认调试签名。</p>
+
+  <h2>1. 配置现有 keystore</h2>
+  <p>使用已有 Release keystore，保存在仓库外并备份。不要为已有发布版本随意更换签名身份。本接入不会生成或替换 keystore。</p>
+  <p>在根目录已被 Git 忽略的 <code>local.properties</code> 中保留 SDK 配置，并加入实际路径和别名：</p>
+  <pre>keyringStoreFile=/absolute/path/to/release.jks
+keyringKeyAlias=your-key-alias</pre>
+  <p>路径和别名也支持同名 <code>-P</code> 参数，Gradle 项目属性优先于 <code>local.properties</code>。相对路径从项目根目录解析，<code>~</code> 不会展开；Windows 路径建议使用正斜杠。</p>
+
+  <h2>2. 初始化钥匙圈密码</h2>
+  <p>在已登录桌面、钥匙圈已解锁的本机终端执行：</p>
+  <pre>./scripts/init-keyring-signing.sh</pre>
+  <p>脚本隐藏输入，私钥密码留空表示沿用 keystore 密码。密码经短期环境变量传给插件，不写入项目文件或命令行参数。</p>
+  <p>单独更新密码或在 Windows 上初始化时，可运行插件任务，从标准输入录入密码（Windows 使用 <code>gradlew.bat</code>）：</p>
+  <pre>./gradlew --no-daemon --no-configuration-cache -PkeyringSigning=false :setSecretValue --name=android_store_password
+./gradlew --no-daemon --no-configuration-cache -PkeyringSigning=false :setSecretValue --name=android_key_password</pre>
+  <p>macOS 使用登录钥匙串；Linux 需要会话 D-Bus 和 Secret Service 等兼容服务。首次读取可能提示授权或解锁。</p>
+  <p>当前根项目名是 <code>AWall</code>，对应钥匙圈服务名 <code>Gradle Project AWall</code>，两个密码独立于参考项目保存。更改根项目名后需要重新初始化。</p>
+
+  <h2>3. 默认构建签名 Release</h2>
+  <pre># 检查 keystore、密码、私钥和证书链
+./gradlew :app:verifyReleaseSigning
+
+# 构建签名 APK
+./gradlew :app:assembleRelease
+
+# 构建签名 AAB
+./gradlew :app:bundleRelease</pre>
+  <p>APK 位于 <code>app/build/outputs/apk/release/app-release.apk</code>，AAB 位于 <code>app/build/outputs/bundle/release/app-release.aab</code>。</p>
+  <div class="note">AGP 在配置阶段保存签名密码，因此项目默认关闭 Gradle 配置缓存。显式请求 <code>--configuration-cache</code> 且启用签名时，会在读取密码前失败。用户级或 IDE 配置如果开启了缓存，应关闭或使用 <code>--no-configuration-cache</code>。</div>
+  <p>默认启用会在 Debug 构建和 IDE 同步的配置阶段也检查签名配置。尚未准备凭据的机器可以临时关闭签名：</p>
+  <pre>./gradlew -PkeyringSigning=false :app:assembleDebug
+./gradlew --no-configuration-cache -PkeyringSigning=false :listSecretConfigs</pre>
+  <p><code>keyringSigning</code> 只接受 <code>true</code> 或 <code>false</code>；也可在 <code>local.properties</code> 中设置。显式关闭后构建 Release 会得到未签名包，<code>verifyReleaseSigning</code> 会失败。</p>
+
+  <h2>CI 与凭据映射</h2>
+  <table>
+    <tr><th>钥匙圈秘密名</th><th>Gradle 项目属性</th><th>环境变量</th></tr>
+    <tr><td><code>android_store_password</code></td><td><code>signStorePassword</code></td><td><code>SIGN_STORE_PASSWORD</code></td></tr>
+    <tr><td><code>android_key_password</code></td><td><code>signKeyPassword</code></td><td><code>SIGN_KEY_PASSWORD</code></td></tr>
+  </table>
+  <p>插件读取顺序为项目属性、环境变量、系统钥匙圈。CI 可注入上述环境变量，并通过 <code>-PkeyringStoreFile</code> 和 <code>-PkeyringKeyAlias</code> 提供 keystore 路径和别名，无需桌面钥匙圈。</p>
+  <p>不要把密码写入受 Git 跟踪的文件或 <code>-P</code> 命令行参数。不要运行会输出密码的 <code>listSecretValues</code>。keystore 与密码均需保留备份。</p>
+</body>
+</html>
