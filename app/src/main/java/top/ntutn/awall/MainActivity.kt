@@ -37,8 +37,22 @@ class MainActivity : ComponentActivity() {
         setContent {
             AWallTheme {
                 val state by repository.ui.collectAsState()
+                val wallpaperState by repository.state.collectAsState()
+                val storageError by repository.storageError.collectAsState()
                 val scope = rememberCoroutineScope()
                 var selecting by remember { mutableStateOf(false) }
+                var savingSettings by remember { mutableStateOf(false) }
+                fun saveSettings(update: suspend () -> Unit) {
+                    if (savingSettings || selecting || wallpaperState == null || storageError) return
+                    savingSettings = true
+                    scope.launch {
+                        try { update() }
+                        catch (error: CancellationException) { throw error }
+                        catch (_: Exception) {
+                            Toast.makeText(this@MainActivity, R.string.settings_save_failed, Toast.LENGTH_LONG).show()
+                        } finally { savingSettings = false }
+                    }
+                }
                 val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
                     val data = result.data
                     val uri = data?.data
@@ -61,6 +75,25 @@ class MainActivity : ComponentActivity() {
                     onOpenWallpaperPreview = ::openWallpaperPreview,
                     directoryState = state,
                     selecting = selecting,
+                    wallpaperState = wallpaperState,
+                    savingSettings = savingSettings,
+                    storageError = storageError,
+                    onUnlockEnabledChanged = { enabled -> saveSettings { repository.setUnlockEnabled(enabled) } },
+                    onTimerEnabledChanged = { enabled -> saveSettings { repository.setTimerEnabled(enabled) } },
+                    onIntervalChanged = { interval -> saveSettings { repository.setIntervalMillis(interval) } },
+                    onRetryLoading = {
+                        if (!savingSettings && !selecting) {
+                            savingSettings = true
+                            scope.launch {
+                                try { repository.refresh() }
+                                catch (error: CancellationException) { throw error }
+                                catch (_: Exception) {
+                                    Toast.makeText(this@MainActivity, R.string.settings_load_failed, Toast.LENGTH_LONG).show()
+                                }
+                                finally { savingSettings = false }
+                            }
+                        }
+                    },
                     onSelectDirectory = {
                         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or

@@ -54,7 +54,7 @@ suspend fun scanPhotoTree(rootId: String, children: suspend (String) -> List<Doc
 
 /** Tokens also guard work that ignores coroutine cancellation inside a provider. */
 class RequestVersion {
-    private var value = 0L
+    @Volatile private var value = 0L
     fun next(): Long = ++value
     fun isCurrent(token: Long): Boolean = value == token
 }

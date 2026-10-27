@@ -10,11 +10,25 @@
     <string name="directory_ready">找到 %1$d 张候选照片（包含子目录）</string>
     <string name="directory_empty">该目录没有可用照片</string>
     <string name="directory_inaccessible">无法访问目录，请重新选择</string>
-    <string name="directory_retry">暂时无法读取或扫描未完成，将在下次解锁时重试</string>
+    <string name="directory_retry">暂时无法读取或扫描未完成，将在下次更新时重试</string>
     <string name="directory_partial">部分目录无法读取，已跳过</string>
     <string name="select_directory">选择照片目录</string>
     <string name="change_directory">重新选择照片目录</string>
-    <string name="photo_wallpaper_hint">每次解锁随机更换照片与矩形背景。照片完整居中显示，原始文件不会被修改。</string>
+    <string name="photo_wallpaper_hint">照片完整居中显示，原始文件不会被修改。</string>
     <string name="directory_selection_failed">目录授权或保存失败，已保留原来的配置，请重新选择。</string>
     <string name="directory_picker_unavailable">此设备无法打开系统目录选择器。</string>
+    <string name="automatic_rotation_title">自动更换</string>
+    <string name="rotate_on_unlock">解锁时更换</string>
+    <string name="rotate_on_timer">定时更换</string>
+    <string name="rotation_interval">更换间隔：%1$s</string>
+    <string name="interval_15_minutes">15 分钟</string>
+    <string name="interval_30_minutes">30 分钟</string>
+    <string name="interval_1_hour">1 小时</string>
+    <string name="interval_6_hours">6 小时</string>
+    <string name="interval_24_hours">24 小时</string>
+    <string name="automatic_rotation_hint">每次成功更换后重新计时。壁纸暂不可见或应用未运行时，下次显示时检查并补换。</string>
+    <string name="settings_loading">正在读取设置…</string>
+    <string name="settings_load_failed">暂时无法读取设置，请重试。</string>
+    <string name="retry_settings">重试</string>
+    <string name="settings_save_failed">设置保存失败，已保留原来的设置，请重试。</string>
 </resources>

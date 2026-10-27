@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AWell · 定时更换壁纸 Spec</title>
+<style>
+:root{color-scheme:light;--ink:#20312e;--muted:#60706a;--line:#dce5df;--accent:#176654;--soft:#edf5ef;--paper:#fff;--bg:#f3f5f0;--amber:#815b22}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.85 system-ui,-apple-system,"PingFang SC",sans-serif}main{max-width:1120px;margin:40px auto;padding:48px;background:var(--paper);border:1px solid var(--line);border-radius:18px}header{border-bottom:2px solid var(--accent);padding-bottom:26px}h1{font-size:36px;line-height:1.35;margin:10px 0}h2{font-size:23px;margin:42px 0 14px;scroll-margin-top:20px}h3{font-size:18px;margin:25px 0 8px}p{margin:10px 0}.tag{color:var(--accent);font-size:12px;font-weight:750;letter-spacing:.13em}.meta,.muted{color:var(--muted);font-size:14px}.lead{max-width:830px;font-size:19px}.note{background:var(--soft);border-left:4px solid var(--accent);padding:15px 20px;margin:22px 0}.warning{background:#fbf6eb;border-left-color:#b88b40}.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:24px 0}.card{padding:18px;border:1px solid var(--line);border-radius:10px}.card strong{display:block;color:var(--accent);margin-bottom:7px}.card p{font-size:14px;margin:0}.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}th,td{text-align:left;vertical-align:top;border:1px solid var(--line);padding:11px 13px}th{background:#f3f7f3}td:first-child{font-weight:600}code{background:#f0f4f1;padding:2px 5px;border-radius:4px;font-size:.88em;overflow-wrap:anywhere}pre{padding:20px;background:#19372f;color:#eaf4ed;overflow:auto;line-height:1.75;border-radius:10px;font-size:14px}pre code{background:none;padding:0;color:inherit}a{color:var(--accent);text-underline-offset:3px}li{margin:7px 0}nav{display:flex;flex-wrap:wrap;gap:7px 18px;margin:22px 0;font-size:14px}.timeline{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:20px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden}.step{padding:18px;border-right:1px solid var(--line)}.step:last-child{border:0;background:var(--soft)}.step b{display:block;font-size:18px;color:var(--accent)}.step span{display:block;font-size:14px}.step small{display:block;color:var(--muted);font-size:12px}footer{border-top:1px solid var(--line);margin-top:42px;padding-top:20px;font-size:13px;color:var(--muted)}@media(max-width:720px){main{margin:0;padding:28px 19px;border:0;border-radius:0}h1{font-size:29px}.lead{font-size:17px}.cards{grid-template-columns:1fr}.timeline{grid-template-columns:1fr 1fr}.step{border-bottom:1px solid var(--line)}table{min-width:640px}pre{font-size:12px}}@media print{body{background:white}main{border:0;margin:0;padding:0;max-width:none}nav{display:none}h2,h3{break-after:avoid}tr,.card,.timeline{break-inside:avoid}a{color:inherit}}
+</style>
+</head>
+<body><main>
+<header>
+<div class="tag">AWELL / FEATURE SPEC / DRAFT</div>
+<h1>定时更换壁纸</h1>
+<p class="lead">保存一个计时基线，启动和恢复可见时检查到期条件。到期补换一次，成功后重新计时。</p>
+<div class="meta">版本 0.4 · 实现于 2026-10-27 · DataStore · 自动化验证范围见文末</div>
+</header>
+<div class="cards">
+<div class="card"><strong>两个开关独立</strong><p>解锁更换与定时更换可以分别启停；任一有效换图成功，都重新开始定时周期。</p></div>
+<div class="card"><strong>仅一个时间字段</strong><p>保存本轮计时起点。下一次到期时间和剩余时间直接计算，不维护额外版本或历史记录。</p></div>
+<div class="card"><strong>启动先检查</strong><p>进程退出不丢计时依据；恢复时若已到期，在正式壁纸可绘制后立即补换一次。</p></div>
+</div>
+<nav aria-label="文档目录"><a href="#scope">范围</a><a href="#ux">设置</a><a href="#state">最小字段</a><a href="#rules">计时规则</a><a href="#startup">启动与调度</a><a href="#storage">DataStore</a><a href="#implementation">实现边界</a><a href="#acceptance">验收</a></nav>
+
+<h2 id="scope">1. 本次范围</h2>
+<p>在现有本地照片动态壁纸上增加定时更换，以及解锁更换开关；使用 DataStore 保存目录、设置、最近照片与计时基线。继续使用 Kotlin，沿用当前照片扫描、解码、随机选择、背景合成和预览隔离。</p>
+<p>本文扩展<a href="local-photo-wallpaper.html">本地照片壁纸 Spec</a>，替代旧稿的 SharedPreferences 存储建议；启用定时后，旧稿“不定时刷新”及“恢复可见不换图”的对应约束由本文覆盖。本次不做固定时刻、后台精确唤醒、进程保活、换图历史或多时钟兼容机制。</p>
+
+<h2 id="ux">2. 设置</h2>
+<div class="scroll"><table><thead><tr><th>项目</th><th>规则</th></tr></thead><tbody>
+<tr><td>解锁时更换</td><td>独立开关，默认开启，保持现有行为。</td></tr>
+<tr><td>定时更换</td><td>独立开关，默认关闭；首次开启默认每 1 小时。</td></tr>
+<tr><td>更换间隔</td><td>15 分钟、30 分钟、1 小时、6 小时、24 小时；关闭定时时禁用间隔控件，保留所选档位。</td></tr>
+<tr><td>说明</td><td>“每次成功更换后重新计时。壁纸暂不可见或应用未运行时，下次显示时检查并补换。”</td></tr>
+</tbody></table></div>
+<p>两个开关独立、任一成功换图后重新计时已确认；默认值和间隔档位按本稿建议。设置保存成功后更新 UI，失败保留原设置并提示。两个开关都关闭时仍允许首次初始化、目录变更和失效修复。</p>
+
+<h2 id="state">3. 最小持久字段</h2>
+<p><strong>保留 7 个字段，其中目录和最近照片是现有数据，本次新增 4 个字段。</strong>DataStore 使用单个不可变 <code>WallpaperState</code>，通过 Kotlin Serialization JSON 序列化。</p>
+<div class="scroll"><table><thead><tr><th>字段</th><th>用途</th></tr></thead><tbody>
+<tr><td>directoryUri: String?</td><td>已选择目录的 URI，沿用现有数据。</td></tr>
+<tr><td>directoryName: String?</td><td>目录展示名，沿用现有数据，避免页面展示时重新读取提供者。</td></tr>
+<tr><td>currentPhotoUri: String?</td><td>最近正式照片，沿用现有数据；null 表示当前无照片。</td></tr>
+<tr><td>unlockEnabled: Boolean</td><td>解锁更换开关，默认 true。</td></tr>
+<tr><td>timerEnabled: Boolean</td><td>定时更换开关，默认 false。</td></tr>
+<tr><td>intervalMillis: Long</td><td>所选间隔，默认 1 小时；仅接受支持的正值档位。</td></tr>
+<tr><td>timerBaseAtMillis: Long?</td><td>本轮计时起点的 epoch 毫秒值，定时关闭时可为空；开启时或有效换图成功后更新。</td></tr>
+</tbody></table></div>
+<p>不另存 lastChange、ClockMark、bootCount、currentScene、初始化标记、版本计数、下一次到期时间或剩余时间。当前没有展示换图历史的需求，不必区分“最后换图时间”和“本次启用时间”；统一称为计时基线，不将启用开关称为换图成功。</p>
+
+<h2 id="rules">4. 计时规则</h2>
+<pre><code>due = timerEnabled
+      &amp;&amp; timerBaseAtMillis != null
+      &amp;&amp; nowMillis - timerBaseAtMillis &gt;= intervalMillis
+
+remaining = max(0, timerBaseAtMillis + intervalMillis - nowMillis)</code></pre>
+<div class="scroll"><table><thead><tr><th>事件</th><th>处理</th></tr></thead><tbody>
+<tr><td>开启定时</td><td>保存基线为当前时间，等待一个完整间隔；不立即更换已有照片。</td></tr>
+<tr><td>关闭定时</td><td>取消定时等待并清空基线；解锁开关仍独立生效。</td></tr>
+<tr><td>更改间隔</td><td>沿用原基线重新判断；缩短后已到期则待可绘制时执行，延长后等待剩余时间。</td></tr>
+<tr><td>解锁、定时、首次初始化或修复成功</td><td>照片与背景一起更新；定时开启时，将照片 URI 和当前时间基线通过同一次 DataStore 事务保存。</td></tr>
+<tr><td>恢复旧图、空背景或重建 Surface</td><td>不改变基线；不能因为每次重建而不断推迟到期。</td></tr>
+<tr><td>单图、空目录或未选目录的有效换图</td><td>允许照片 URI 不变或为空；更新一次随机背景，也算成功并重新计时。</td></tr>
+<tr><td>读取或保存失败</td><td>保留可用旧画面和原基线，不将失败记为成功。定时开启且可见时，用同一个计时 Job 等待 1 分钟后重试；不做多级退避。</td></tr>
+</tbody></table></div>
+<p>例如间隔 1 小时，10:00 开始计时，10:40 解锁换图成功，则下一次定时为 11:40。离线到 15:00 才恢复时只补一次，成功后再等 1 小时。</p>
+<p>若定时已开启但基线缺失，只补写当前时间作为基线；启动时读到有效基线则保留，不无条件重新计时。</p>
+<p>首版统一使用系统 epoch 时间，不持久化单调时钟或启动次数。用户手动向前调时可能提前到期；若当前时间早于基线，则将基线校正为当前时间并等待完整间隔。时区只影响显示。接受手动改时导致的间隔偏差，不扩展多时钟状态。</p>
+
+<h2 id="startup">5. 启动检查与可见时调度</h2>
+<pre><code>等待 DataStore 首次有效状态及旧数据迁移完成
+  → 检查定时开关、基线和当前时间
+  → 已到期：准备一次新选择
+  → 未到期：恢复最近照片或背景，不重置基线
+
+正式壁纸可见且 Surface 就绪时执行
+  → 成功：保存照片与新基线，提交画面
+  → 暂不可绘制：等待可见 / Surface 回调后重新检查</code></pre>
+<ul>
+<li><strong>入口：</strong>WallpaperService 创建、正式 Engine 附着、恢复可见和 Surface 就绪时检查。Activity 启动读取同一状态；没有正式 Engine 时只显示设置，等待系统创建壁纸。</li>
+<li><strong>启动已到期：</strong>不再等待完整间隔；用持久化的旧 URI 排除连续重复，首个正式可绘制的 Engine 就绪后立即开始异步准备。漏过多个周期只补一次。</li>
+<li><strong>启动未到期：</strong>恢复旧 URI。URI 为空时可执行一次恢复性扫描；仍为空只恢复背景，不更新基线；找到可用照片或旧照片失效需换新时，按初始化 / 修复处理。目录选择后继续沿用现有首次加载入口，不增加持久初始化标记。</li>
+<li><strong>可见期间：</strong>在现有协调器内增加一个单次等待 Job，到时重新判断条件。配置 Flow 变化后调整等待；时间经过本身不会触发 DataStore Flow。</li>
+<li><strong>隐藏或销毁：</strong>取消等待及无用准备，不扫描不可见中间帧；不清除持久基线。进程重建、设备重启或强行停止后再次可用，都按同一启动检查恢复。</li>
+<li><strong>事件合并：</strong>复用已有待处理和取消机制；同一在途换图期间的解锁、到期和生命周期事件合并一次。恢复旧图期间收到有效换图事件时，应改为换图，不能把事件吞掉。不增加固定 1 秒合并窗口。</li>
+<li><strong>预览：</strong>继续使用独立临时状态，不写正式照片或计时基线。</li>
+</ul>
+<p>目录无权限时沿用现有状态提示和背景回退，等重新授权或下一次有效入口再校验，不循环扫描。暂时读取失败使用上述固定重试等待；全部隐藏时取消重试，恢复可见再判断。</p>
+<p class="muted">平台依据：Android 建议<a href="https://developer.android.com/reference/android/service/wallpaper/WallpaperService.Engine#onVisibilityChanged(boolean)">动态壁纸在可见时使用 CPU</a>。本稿采用可见时执行、恢复时补换的产品规则。</p>
+
+<h2 id="storage">6. DataStore 与迁移</h2>
+<p>应用内同一文件只创建一个 DataStore 实例，由现有 <code>PhotoDirectoryRepository</code> 统一访问，Activity 与壁纸服务复用。读取以 <code>data</code> Flow 为准，修改使用 <code>updateData</code>；不额外维护可写缓存。首次读取失败时显示错误并重试，不把临时错误当成默认配置覆盖原数据。</p>
+<p>扫描和解码在事务外执行；准备完成后，通过现有协调器串行提交。在 updateData 中使用最新状态，仅修改相关字段，同时检查本轮依赖的目录与设置仍适用。复用现有进程内请求 token 拒绝取消后返回的旧结果，目录重选时也应使旧请求失效；无需持久化请求版本。</p>
+<p>照片 URI 和新基线同一次提交，保存成功后再发布场景。落盘前进程死亡则恢复旧记录，落盘后、绘制前死亡则恢复新记录；调用方被取消而无法确认结果时，下次先读取 DataStore 再判断。这里的成功指可恢复的逻辑提交，实际屏幕显示仍需设备验收。</p>
+<p>用 <code>SharedPreferencesMigration&lt;WallpaperState&gt;</code> 迁移现有 <code>photo_directory</code> 中的 <code>tree_uri / tree_name / last_photo</code>；新设置采用默认值，不推测旧图展示时间。迁移幂等、目标已有值优先，持久成功后清理旧 key 并停止旧偏好读写，不释放仍在使用的 SAF 授权。</p>
+<p>Serializer 为缺失字段提供默认值，实际出现不兼容格式时再设计迁移；已知格式损坏与普通 I/O 失败分开处理。整个 DataStore 文件放入 <code>noBackupFilesDir</code>，旧偏好也从备份与设备迁移中排除，不为备份另建一套状态。</p>
+<p class="muted">平台依据：<a href="https://developer.android.com/topic/libraries/architecture/datastore">DataStore 的单实例、不可变数据与 Flow</a>；<a href="https://github.com/androidx/androidx/blob/androidx-main/datastore/datastore-core/src/commonMain/kotlin/androidx/datastore/core/DataStore.kt">updateData 的事务与持久化语义</a>。</p>
+
+<h2 id="implementation">7. 实现边界</h2>
+<ul>
+<li><strong>数据层：</strong>增加 WallpaperState 与 JSON Serializer，现有 PhotoDirectoryRepository 改用 DataStore，继续负责目录授权和扫描。</li>
+<li><strong>协调器：</strong>在 WallpaperPhotoCoordinator 中增加设置订阅、到期判断和单次等待；复用已有照片任务、pending、取消和 token。到期计算用可传入当前时间的简单函数测试。</li>
+<li><strong>界面与文档：</strong>MainScreen 增加两个开关和间隔选择；实现时同步 README 与备份规则。无需单独拆 RotationPolicy、RotationClock、RotationScheduler 或通用状态机框架。</li>
+</ul>
+<p>沿用现有 5 秒扫描解码超时、照片和矩形背景整组更新、资源预算与过期结果校验。目录失效、坏图、Surface 生命周期等既有处理继续复用，不在本次重新设计。</p>
+
+<h2 id="acceptance">8. 必要验收</h2>
+<div class="scroll"><table><thead><tr><th>ID</th><th>验证</th></tr></thead><tbody>
+<tr><td>T-01</td><td>默认值和四种开关组合正确；成功解锁换图重启定时，关闭定时不影响解锁。</td></tr>
+<tr><td>T-02</td><td>未到期终止并重建进程：保持旧 URI 和基线，只等待剩余时间。</td></tr>
+<tr><td>T-03</td><td>已到期或漏过多周期后重建：首个正式可绘制时立即补换一次，多图时排除持久旧 URI。</td></tr>
+<tr><td>T-04</td><td>隐藏 / 无 Surface 时不换；恢复可见时检查。反复恢复旧照片或空背景不推迟基线。</td></tr>
+<tr><td>T-05</td><td>缩短 / 延长间隔沿用基线；加载中改目录或设置，旧请求不回写；同时到达的在途事件合并。</td></tr>
+<tr><td>T-06</td><td>单图和空目录的有效更新重新计时；单纯恢复不重新计时；预览不修改正式状态。</td></tr>
+<tr><td>T-07</td><td>读取或保存失败不更新基线、不零间隔循环；暂时失败按固定等待重试，权限失效提示重新授权。</td></tr>
+<tr><td>T-08</td><td>SharedPreferences 迁移保留目录与最近照片；首次读取完成前不执行默认策略；写入前后重建恢复一致记录。</td></tr>
+<tr><td>T-09</td><td>手动向前 / 向后改时间按基线规则处理；设备重启后仍能检查是否到期。</td></tr>
+<tr><td>T-10</td><td>真机验证系统重建、实际 Surface 与照片背景同步显示；已有照片与资源相关测试继续通过。</td></tr>
+</tbody></table></div>
+<p>逻辑测试注入当前时间和短等待，避免真实等待长周期；设备验证补一次正式间隔。沿用构建、单元测试、lint 与相关设备测试。策略或假 Engine 测试不能替代真实系统壁纸显示验收。</p>
+<footer><p>已按本规格实现。2026-10-27：Debug 构建、lint、17 个单元测试与 P0110（Android 16）上的 41 个设备测试通过。到期、解锁和 Engine 生命周期采用协调器注入，持久恢复采用重开 DataStore 文件验证；实际系统回收进程、设备重启、真实壁纸 Surface 和正式间隔的端到端验收尚未完成。已确认：两个开关独立、任一成功换图重新计时、引入 DataStore、本次采用简单实现。</p></footer>
+</main></body></html>

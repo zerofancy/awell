@@ -2,14 +2,22 @@ package top.ntutn.awall.photos
 
 import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
+import androidx.datastore.core.DataStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.FileNotFoundException
@@ -29,31 +37,93 @@ data class DirectoryPhotos(val uris: List<Uri>, val partial: Boolean)
 
 interface WallpaperPhotoSource {
     val directory: StateFlow<PhotoDirectory?>
+    val state: StateFlow<WallpaperState?>
     suspend fun scan(tree: Uri): DirectoryPhotos
     suspend fun <T> withDirectory(tree: Uri, block: suspend () -> T): T
     fun report(tree: Uri?, status: DirectoryStatus, count: Int = 0, partial: Boolean = false)
-    fun lastPhoto(): Uri?
-    fun saveLastPhoto(tree: Uri?, photo: Uri?)
+    suspend fun updateState(transform: (WallpaperState) -> WallpaperState): WallpaperState
 }
 
 class PhotoDirectoryRepository internal constructor(
     context: Context,
-    private val preferences: SharedPreferences = context.getSharedPreferences("photo_directory", Context.MODE_PRIVATE),
+    private val dataStore: DataStore<WallpaperState> = createWallpaperDataStore(context),
+    private val nowMillis: () -> Long = System::currentTimeMillis,
+    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
 ) : WallpaperPhotoSource {
     private val resolver = context.contentResolver
     private val activeReaders = mutableMapOf<Uri, Int>()
     private val obsoleteGrants = mutableSetOf<Uri>()
-    private val initial = preferences.getString("tree_uri", null)?.let {
-        PhotoDirectory(Uri.parse(it), preferences.getString("tree_name", null) ?: "照片目录")
-    }
-    private val mutableDirectory = MutableStateFlow(initial)
+    private val updates = Mutex()
+    private val mutableState = MutableStateFlow<WallpaperState?>(null)
+    override val state = mutableState.asStateFlow()
+    private val mutableStorageError = MutableStateFlow(false)
+    val storageError = mutableStorageError.asStateFlow()
+    private val mutableDirectory = MutableStateFlow<PhotoDirectory?>(null)
     override val directory = mutableDirectory.asStateFlow()
-    private val mutableUi = MutableStateFlow(DirectoryUiState(initial,
-        if (initial == null) DirectoryStatus.UNSELECTED else DirectoryStatus.SCANNING))
+    private val mutableUi = MutableStateFlow(DirectoryUiState())
     val ui = mutableUi.asStateFlow()
+
+    init {
+        scope.launch {
+            try { retryLoading() }
+            catch (error: CancellationException) { throw error }
+            catch (_: Exception) { /* storageError exposes a retryable loading failure. */ }
+        }
+    }
+
+    /** All writes go through this repository; this Flow mirrors only confirmed DataStore values. */
+    override suspend fun updateState(transform: (WallpaperState) -> WallpaperState): WallpaperState =
+        updates.withLock {
+            try {
+                dataStore.updateData { transform(it) }.also(::acceptState)
+            } catch (error: CancellationException) { throw error }
+            catch (error: Exception) {
+                mutableStorageError.value = true
+                throw error
+            }
+        }
+
+    suspend fun retryLoading() = updates.withLock {
+        try { acceptState(dataStore.data.first()) }
+        catch (error: CancellationException) { throw error }
+        catch (error: Exception) {
+            mutableStorageError.value = true
+            throw error
+        }
+    }
+
+    private fun acceptState(saved: WallpaperState) {
+        val oldDirectory = directory.value
+        mutableState.value = saved
+        mutableStorageError.value = false
+        val uri = saved.directoryUri?.let(Uri::parse)
+        val name = saved.directoryName ?: "照片目录"
+        if (oldDirectory?.uri != uri || (uri != null && oldDirectory?.name != name)) {
+            mutableDirectory.value = uri?.let { PhotoDirectory(it, name, (oldDirectory?.revision ?: 0) + 1) }
+            mutableUi.value = DirectoryUiState(directory.value,
+                if (uri == null) DirectoryStatus.UNSELECTED else DirectoryStatus.SCANNING)
+        }
+    }
+
+    suspend fun setUnlockEnabled(enabled: Boolean) {
+        updateState { it.copy(unlockEnabled = enabled) }
+    }
+
+    suspend fun setTimerEnabled(enabled: Boolean) {
+        updateState {
+            if (it.timerEnabled == enabled) it else it.copy(timerEnabled = enabled,
+                timerBaseAtMillis = if (enabled) nowMillis() else null)
+        }
+    }
+
+    suspend fun setIntervalMillis(interval: Long) {
+        require(interval in SUPPORTED_INTERVALS_MILLIS) { "Unsupported wallpaper interval" }
+        updateState { it.copy(intervalMillis = interval) }
+    }
 
     /** Call on the main thread. Existing readers keep their old grant until they have exited. */
     suspend fun select(uri: Uri, resultFlags: Int) {
+        if (state.value == null) retryLoading()
         val old = directory.value
         val alreadyGranted = hasReadGrant(uri)
         try {
@@ -62,12 +132,12 @@ class PhotoDirectoryRepository internal constructor(
             val name = withTimeout(PHOTO_TIMEOUT_MS) { readRootName(uri) }
             // Once persistence starts, finish the in-memory transition even if the Activity closes.
             withContext(NonCancellable) {
-                val saved = PhotoIo.run {
-                    preferences.edit().putString("tree_uri", uri.toString())
-                        .putString("tree_name", name).remove("last_photo").commit()
+                updateState {
+                    it.copy(directoryUri = uri.toString(), directoryName = name, currentPhotoUri = null)
                 }
-                if (!saved) throw IOException("Cannot save directory")
-                mutableDirectory.value = PhotoDirectory(uri, name, (old?.revision ?: 0) + 1)
+                // StateFlow does not emit equal values; reselecting the same URI must invalidate readers too.
+                if (old?.uri == uri) mutableDirectory.value = directory.value!!.copy(
+                    revision = directory.value!!.revision + 1)
                 mutableUi.value = DirectoryUiState(directory.value, DirectoryStatus.SCANNING)
                 if (old != null && old.uri != uri) retire(old.uri)
             }
@@ -115,6 +185,7 @@ class PhotoDirectoryRepository internal constructor(
     }
 
     override suspend fun scan(tree: Uri): DirectoryPhotos {
+        if (state.value == null) retryLoading()
         if (!hasReadGrant(tree)) throw SecurityException("Directory grant missing")
         readRootName(tree)
         val snapshot = scanPhotoTree(DocumentsContract.getTreeDocumentId(tree)) { id ->
@@ -140,6 +211,11 @@ class PhotoDirectoryRepository internal constructor(
     }
 
     suspend fun refresh() {
+        if (state.value == null || storageError.value) {
+            try { retryLoading() }
+            catch (error: CancellationException) { throw error }
+            catch (_: Exception) { return }
+        }
         val tree = directory.value?.uri ?: return
         report(tree, DirectoryStatus.SCANNING)
         try {
@@ -157,11 +233,6 @@ class PhotoDirectoryRepository internal constructor(
         } catch (_: Exception) {
             report(tree, DirectoryStatus.RETRY)
         }
-    }
-
-    override fun lastPhoto(): Uri? = preferences.getString("last_photo", null)?.let(Uri::parse)
-    override fun saveLastPhoto(tree: Uri?, photo: Uri?) {
-        if (directory.value?.uri == tree) preferences.edit().putString("last_photo", photo?.toString()).apply()
     }
 
     companion object {

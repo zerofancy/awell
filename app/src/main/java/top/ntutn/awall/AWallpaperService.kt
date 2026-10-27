@@ -34,7 +34,10 @@ class AWallpaperService : WallpaperService() {
     private lateinit var coordinator: WallpaperPhotoCoordinator
     private val unlockReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == Intent.ACTION_USER_PRESENT) coordinator.unlocked()
+            when (intent?.action) {
+                Intent.ACTION_USER_PRESENT -> coordinator.unlocked()
+                Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED -> coordinator.timeChanged()
+            }
         }
     }
 
@@ -42,7 +45,11 @@ class AWallpaperService : WallpaperService() {
         super.onCreate()
         repository = PhotoDirectoryRepository.get(this)
         coordinator = WallpaperPhotoCoordinator(repository, serviceScope)
-        ContextCompat.registerReceiver(this, unlockReceiver, IntentFilter(Intent.ACTION_USER_PRESENT),
+        val events = IntentFilter(Intent.ACTION_USER_PRESENT).apply {
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        }
+        ContextCompat.registerReceiver(this, unlockReceiver, events,
             ContextCompat.RECEIVER_EXPORTED)
     }
 
@@ -81,6 +88,7 @@ class AWallpaperService : WallpaperService() {
         override fun onSurfaceCreated(holder: SurfaceHolder) {
             super.onSurfaceCreated(holder)
             surfaceReady = true
+            owner?.visibilityChanged()
         }
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
