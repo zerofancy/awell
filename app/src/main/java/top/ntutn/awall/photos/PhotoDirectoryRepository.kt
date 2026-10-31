@@ -105,6 +105,11 @@ class PhotoDirectoryRepository internal constructor(
         }
     }
 
+    suspend fun setBackgroundStyle(style: String) {
+        require(style == BackgroundStyle.normalize(style))
+        updateState { it.copy(backgroundStyle = style) }
+    }
+
     suspend fun setUnlockEnabled(enabled: Boolean) {
         updateState { it.copy(unlockEnabled = enabled) }
     }

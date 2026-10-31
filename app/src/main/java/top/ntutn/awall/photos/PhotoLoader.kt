@@ -11,8 +11,8 @@ import kotlin.math.max
 import kotlin.math.min
 
 class PhotoLoader(private val resolver: ContentResolver) {
-    /** Per-Engine allowance includes the displayed image, candidate and orientation buffer. */
-    suspend fun load(uri: Uri, width: Int, height: Int, budget: Long): Bitmap =
+    /** Allowance includes retained frames, decoded candidate and orientation buffer. */
+    suspend fun load(uri: Uri, width: Int, height: Int, budget: Long, retainedBuffers: Int = 3): Bitmap =
         PhotoIo.run(discard = Bitmap::recycle) { signal ->
             fun descriptor() = resolver.openFileDescriptor(uri, "r", signal)
                 ?: throw IOException("Photo unavailable")
@@ -36,9 +36,9 @@ class PhotoLoader(private val resolver: ContentResolver) {
             val targetHeight = max(1, (bounds.outHeight * fit).toInt())
             while (bounds.outWidth / (sample * 2) >= targetWidth &&
                 bounds.outHeight / (sample * 2) >= targetHeight) sample *= 2
-            // Three buffers: old picture, decoded candidate and transformed candidate.
+            // The Engine also reserves a foreground waiting for its background to finish.
             while (max(1, bounds.outWidth / sample).toLong() *
-                max(1, bounds.outHeight / sample) * 4 * 3 > budget) sample *= 2
+                max(1, bounds.outHeight / sample) * 4 * retainedBuffers > budget) sample *= 2
             signal.throwIfCanceled()
             var bitmap: Bitmap? = null
             try {

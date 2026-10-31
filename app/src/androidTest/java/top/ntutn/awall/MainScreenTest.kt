@@ -6,6 +6,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -150,6 +152,30 @@ class MainScreenTest {
         composeRule.onNodeWithText("重试").performScrollTo().performClick()
         composeRule.runOnIdle { assertEquals(1, retries) }
         composeRule.onNodeWithTag("timer_setting").assertIsNotEnabled()
+    }
+
+    @Test fun backgroundSelectionWaitsForPersistenceAndSupportsDisabledState() {
+        var state by mutableStateOf(WallpaperState())
+        var saving by mutableStateOf(false)
+        var requested: String? = null
+        composeRule.setContent {
+            AWallTheme {
+                MainScreen(onOpenWallpaperPreview = {}, wallpaperState = state, savingSettings = saving,
+                    onBackgroundStyleChanged = { requested = it })
+            }
+        }
+        composeRule.onNodeWithTag("background_random_rectangles").performScrollTo()
+            .assertIsSelected().performClick()
+        composeRule.runOnIdle { assertEquals(null, requested) }
+        composeRule.onNodeWithTag("background_blurred_photo").performScrollTo().performClick().assertIsNotSelected()
+        composeRule.runOnIdle {
+            assertEquals("blurred_photo", requested)
+            state = state.copy(backgroundStyle = requested!!)
+        }
+        composeRule.onNodeWithTag("background_blurred_photo").assertIsSelected()
+        composeRule.onNodeWithTag("background_random_rectangles").assertIsNotSelected()
+        composeRule.runOnIdle { saving = true }
+        composeRule.onNodeWithTag("background_blurred_photo").assertIsNotEnabled()
     }
 
     private fun verifyPreviewButton(darkTheme: Boolean) {

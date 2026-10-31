@@ -42,6 +42,19 @@ class WallpaperStateTest {
         } catch (_: CorruptionException) { }
     }
 
+    @Test fun backgroundStyleDefaultsAndUnknownValuesPreserveOtherSettings() = runBlocking {
+        assertEquals("random_rectangles", decode("{}").backgroundStyle)
+        val old = decode("""{"backgroundStyle":"future","currentPhotoUri":"content://photos/a","timerEnabled":true,"timerBaseAtMillis":42}""")
+        assertEquals("random_rectangles", old.backgroundStyle)
+        assertEquals("content://photos/a", old.currentPhotoUri)
+        assertEquals(42L, old.timerBaseAtMillis)
+        assertTrue(old.timerEnabled)
+        val state = old.copy(backgroundStyle = "blurred_photo")
+        val output = ByteArrayOutputStream()
+        WallpaperStateSerializer.writeTo(state, output)
+        assertEquals(state, WallpaperStateSerializer.readFrom(ByteArrayInputStream(output.toByteArray())))
+    }
+
     private suspend fun decode(json: String): WallpaperState =
         WallpaperStateSerializer.readFrom(ByteArrayInputStream(json.encodeToByteArray()))
 }

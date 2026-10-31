@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AWell · 模糊拉伸背景 Spec</title>
+<style>
+:root{color-scheme:light;--ink:#20312e;--muted:#60706a;--line:#dce5df;--accent:#176654;--soft:#edf5ef;--bg:#f3f5f0}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.85 system-ui,-apple-system,"PingFang SC",sans-serif}
+main{max-width:1080px;margin:36px auto;padding:44px;background:white;border:1px solid var(--line);border-radius:18px}
+header{padding-bottom:24px;border-bottom:2px solid var(--accent)}h1{font-size:36px;line-height:1.3;margin:10px 0}h2{font-size:23px;margin:38px 0 12px;scroll-margin-top:20px}h3{font-size:18px;margin:24px 0 8px}
+p{margin:10px 0}.tag{font-size:12px;font-weight:750;letter-spacing:.12em;color:var(--accent)}.meta,.muted{font-size:14px;color:var(--muted)}.lead{font-size:19px}
+nav{display:flex;flex-wrap:wrap;gap:8px 18px;margin:20px 0}a{color:var(--accent);text-underline-offset:3px}
+.note{background:var(--soft);border-left:4px solid var(--accent);padding:16px 20px;margin:22px 0}.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px;margin:16px 0}th,td{border:1px solid var(--line);padding:11px 13px;text-align:left;vertical-align:top}th{background:#f3f7f3}td:first-child{font-weight:600}
+code{background:#f0f4f1;padding:2px 5px;border-radius:4px;font-size:.88em;overflow-wrap:anywhere}pre{background:#19372f;color:#eaf4ed;padding:20px;border-radius:10px;overflow:auto;line-height:1.7}pre code{background:none;color:inherit;padding:0}
+li{margin:7px 0}.compare{display:grid;grid-template-columns:1fr 1fr;gap:24px;background:#f5f7f4;padding:24px;border-radius:12px}.example{text-align:center}.example p{font-size:14px}.phone{width:176px;height:352px;display:block;margin:0 auto 12px;border:6px solid #233b35;border-radius:24px;background:#000}.settings{max-width:430px;margin:18px auto;border:1px solid var(--line);border-radius:12px;padding:22px}.option{display:flex;gap:12px;align-items:flex-start;margin:14px 0}.radio{width:20px;height:20px;flex-shrink:0;border:2px solid #71847c;border-radius:50%;margin-top:4px}.radio.selected{border:6px solid var(--accent)}.option small{display:block;color:var(--muted)}
+footer{border-top:1px solid var(--line);margin-top:36px;padding-top:18px;font-size:13px;color:var(--muted)}
+@media(max-width:700px){main{margin:0;padding:26px 18px;border:0;border-radius:0}h1{font-size:29px}.compare{padding:18px 10px;gap:12px}.phone{width:132px;height:264px}.lead{font-size:17px}table{min-width:620px}}
+@media print{body{background:#fff}main{margin:0;border:0;padding:0;max-width:none}nav{display:none}h2,h3{break-after:avoid}tr,.compare,.settings{break-inside:avoid}}
+</style>
+</head>
+<body><main>
+<header>
+<div class="tag">AWELL / FEATURE SPEC / IMPLEMENTED</div>
+<h1>完整照片 + 模糊拉伸背景</h1>
+<p class="lead">将同一张照片作为柔和的铺满背景，填补比例不同产生的留白。前景照片保持完整、清晰和原始比例。</p>
+<div class="meta">v1.0 · 2026-10-31 · 已实现 · 自动化与真机验证范围见第 8 节</div>
+</header>
+<div class="note"><strong>核心约定：</strong>“模糊拉伸”是背景效果名称：底层等比放大并居中裁切铺满，前景等比缩放并完整居中。前景不裁切、不做横纵不等比拉伸。与现有“随机矩形”作为两个互斥选项。</div>
+<nav aria-label="文档目录"><a href="#scope">范围与默认值</a><a href="#visual">效果示意</a><a href="#ux">设置交互</a><a href="#render">绘制规则</a><a href="#events">事件与失败</a><a href="#implementation">实现建议</a><a href="#acceptance">验收</a></nav>
+
+<h2 id="scope">1. 范围与默认值</h2>
+<p>本稿承接关联聊天“优化照片桌面背景适配”中“完整照片 + 同图模糊背景”的方向，扩展现有<a href="local-photo-wallpaper.html">本地照片壁纸 Spec</a>与<a href="scheduled-wallpaper.html">定时更换壁纸 Spec</a>。本文覆盖两份旧规格中固定使用随机矩形背景的描述。</p>
+<div class="scroll"><table><thead><tr><th>项目</th><th>本稿约定</th></tr></thead><tbody>
+<tr><td>背景选项</td><td>“随机矩形”“模糊拉伸”，同级、单选，全局生效。</td></tr>
+<tr><td>默认选择</td><td>新安装和旧版本升级均为“随机矩形”，保留现有默认外观。关联聊天中的默认模糊建议不直接改变已有产品默认值。</td></tr>
+<tr><td>首版参数</td><td>模糊程度、压暗程度使用固定值；本稿建议的起始值见第 4 节，需用真机样张确认。</td></tr>
+<tr><td>延续行为</td><td>本地 SAF 读取、照片随机选择、解锁与定时规则、系统预览和正式壁纸均继续使用现有流程。</td></tr>
+<tr><td>暂不纳入</td><td>模糊或明暗滑杆、取色背景、AI 扩图、前景位置或大小调节、相框、切换动画、桌面滑动视差。</td></tr>
+</tbody></table></div>
+
+<h2 id="visual">2. 效果示意</h2>
+<p>以下使用同一幅横向山景示意。两边的清晰前景范围一致，只有留白处与透明区域的底层背景不同。</p>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs>
+<linearGradient id="sky" x2="0" y2="1"><stop stop-color="#92c0d3"/><stop offset="1" stop-color="#e8d3ab"/></linearGradient>
+<symbol id="landscape" viewBox="0 0 160 100"><path fill="url(#sky)" d="M0 0h160v100H0z"/><circle cx="123" cy="25" r="11" fill="#ffe1a4"/><path fill="#82988e" d="M0 73 43 26 84 75 114 41 160 82v18H0z"/><path fill="#3f6b5d" d="M0 92 31 65 66 88 103 58 160 93v7H0z"/><path fill="#244d40" d="m0 94 47-12 54 12 59-10v16H0z"/></symbol>
+<filter id="blur"><feGaussianBlur stdDeviation="9"/></filter>
+</defs></svg>
+<div class="compare">
+<div class="example"><svg class="phone" viewBox="0 0 160 320" role="img" aria-label="随机矩形背景：完整山景居中，上下是黑底彩色矩形"><defs><clipPath id="clipA"><rect width="160" height="320" rx="17"/></clipPath></defs><g clip-path="url(#clipA)"><path fill="#000" d="M0 0h160v320H0z"/><path fill="#5d7984" d="M20 26h73v87H20z"/><path fill="#bd8758" d="M80 72h80v56H80z"/><path fill="#506a51" d="M0 210h66v92H0z"/><path fill="#9f6670" d="M59 245h88v45H59z"/><use href="#landscape" x="0" y="110" width="160" height="100"/></g></svg><strong>随机矩形</strong><p>黑底 + 10 个随机彩色矩形<br>前景完整居中</p></div>
+<div class="example"><svg class="phone" viewBox="0 0 160 320" role="img" aria-label="模糊拉伸背景：放大并模糊压暗的同一山景铺满，清晰完整山景居中"><defs><clipPath id="clipB"><rect width="160" height="320" rx="17"/></clipPath></defs><g clip-path="url(#clipB)"><path fill="#000" d="M0 0h160v320H0z"/><g filter="url(#blur)"><use href="#landscape" x="-201.6" y="-16" width="563.2" height="352"/></g><path fill="#000" opacity=".22" d="M0 0h160v320H0z"/><use href="#landscape" x="0" y="110" width="160" height="100"/></g></svg><strong>模糊拉伸</strong><p>同图等比铺满 + 模糊压暗<br>前景完整居中</p></div>
+</div>
+<p class="muted">示意图用于解释层次，不是照片滤镜的最终视觉标定；随机矩形图仅简化展示部分矩形。背景无需保留完整内容，完整性由清晰前景保证。</p>
+
+<h2 id="ux">3. 设置交互</h2>
+<p>主页在目录区域之后、“自动更换”之前新增“背景效果”。两个选项直接显示，整行可点，并向无障碍服务报告单选语义与选中状态。</p>
+<div class="settings" role="img" aria-label="设置示意：背景效果下有随机矩形和模糊拉伸两个单选项，当前选择模糊拉伸">
+<strong>背景效果</strong>
+<div class="option"><span class="radio"></span><div>随机矩形<small>用随机彩色矩形填充照片留白</small></div></div>
+<div class="option"><span class="radio selected"></span><div>模糊拉伸<small>用同一张照片铺满、模糊并压暗背景</small></div></div>
+<small class="muted">照片始终完整居中显示，不变形、不裁切。</small>
+</div>
+<ul>
+<li>选择后立即保存，保存成功才更新选中状态并通知壁纸；保存失败保留原选项，提示“背景效果保存失败，请重试”。不增加确认按钮。</li>
+<li>沿用设置加载、读取失败、正在保存或选择目录期间的禁用规则。保存期间禁止重复提交；点击已选项不写入、不重绘。</li>
+<li>没有照片目录时也可选择并保存；模糊模式暂显示黑底，之后有可用照片自动使用该效果。</li>
+<li>可见正式壁纸和已打开的系统预览在保存后更新；不必重新应用壁纸。隐藏 Engine 等恢复可见后处理。</li>
+<li>系统预览读取同一背景选项，但继续使用独立照片选择与计时状态；打开预览不能改写正式照片或正式计时基线。</li>
+</ul>
+
+<h2 id="render">4. 绘制规则</h2>
+<h3>4.1 前景与背景分层</h3>
+<p>以当前壁纸 Surface 的实际绘制尺寸为目标，不用 Activity 内容区域或固定手机比例。先沿用现有 EXIF 方向修正，前景与背景都从同一份已修正照片派生。</p>
+<pre><code>输入：目标 W × H，已修正照片 w × h
+
+前景：sFit = min(W / w, H / h)
+      宽高 = w × sFit, h × sFit；居中、完整显示
+
+背景：sFill = max(W / w, H / h)
+      宽高 = w × sFill, h × sFill；居中裁切至目标
+      模糊 → 叠加 22% 不透明度黑色遮罩
+
+绘制：不透明黑底 → 选定背景 → 清晰前景</code></pre>
+<p>这里的“拉伸”不使用非等比变形。背景铺满允许裁切；前景无额外边框、阴影、圆角或模糊。黑色遮罩只影响背景，绘制前景前必须恢复 Paint 等状态。</p>
+<h3>4.2 模糊起始参数</h3>
+<ul>
+<li>建议先用低分辨率背景缓存：长边最多 256 像素，另一边按 Surface 比例计算且至少为 1；不为背景再次全尺寸解码原图。</li>
+<li>在背景缓存尺寸上做三轮可分离盒式模糊，每轮半径为 <code>max(1, round(缓存短边 × 0.04))</code>。作为首版统一起始效果，避免不同屏幕尺寸导致明显模糊差异。</li>
+<li>边缘使用最近边界像素延展后参与模糊；模糊不能在屏幕边缘引入透明或黑色边框。</li>
+<li>生成背景前先以黑底合成带透明通道的照片，再裁切模糊；清晰前景仍保留原透明通道。全透明图片的模糊背景为黑色。</li>
+</ul>
+<p>实现可在保持视觉与资源约束的前提下调整算法；最终参数需用风景、人像、夜景与纯色样张验收，再统一记录。首版不增加用户可调参数。</p>
+<h3>4.3 特殊比例与无图</h3>
+<div class="scroll"><table><thead><tr><th>情况</th><th>表现</th></tr></thead><tbody>
+<tr><td>横图 / 方图 / 超宽图</td><td>前景完整居中，上下留白由背景覆盖；底层允许大量裁切。</td></tr>
+<tr><td>比屏幕更窄的竖图</td><td>前景完整居中，左右留白显示背景。</td></tr>
+<tr><td>照片与屏幕同比例</td><td>清晰前景铺满，背景通常被完全覆盖，画面不应整体变暗或变糊。</td></tr>
+<tr><td>未选目录 / 确认空目录 / 无可显示照片</td><td>随机矩形模式沿用现有效果；模糊拉伸模式使用不透明黑底，不制造虚构照片或残留旧背景。</td></tr>
+<tr><td>仅模糊生成失败</td><td>优先保留当前照片清晰前景并使用黑底；不自动改选项，不换另一张照片，不显示旧照片派生的背景。</td></tr>
+</tbody></table></div>
+
+<h2 id="events">5. 事件、提交与失败</h2>
+<div class="scroll"><table><thead><tr><th>事件</th><th>画面行为</th><th>正式照片与计时</th></tr></thead><tbody>
+<tr><td>仅切换背景选项</td><td>从当前已显示照片生成背景，准备完成后整帧替换。处理期间保留完整旧画面。</td><td>不选新图、不重新扫描目录、不写 currentPhotoUri、不改 timerBaseAtMillis。</td></tr>
+<tr><td>解锁 / 定时 / 初始化 / 目录修复的有效更新</td><td>选定照片与对应背景作为一组提交；模糊失败可按黑底降级提交清晰照片。</td><td>成功的照片更新沿用现有计时规则。</td></tr>
+<tr><td>单图目录触发有效更新</td><td>随机模式刷新矩形；模糊模式可复用同图缓存，视觉可能完全相同。</td><td>仍算有效更新，按既有规则重置开启中的定时基线；与旧稿“每次刷新随机背景”的差异以本条为准。</td></tr>
+<tr><td>空目录触发有效更新</td><td>随机模式刷新矩形；模糊模式仍为黑底。</td><td>沿用旧规格中有效空目录更新的计时规则。</td></tr>
+<tr><td>重绘 / 恢复可见 / Surface 尺寸变化</td><td>普通重绘复用缓存；尺寸变化按新目标重建背景，前景继续完整居中。</td><td>单纯恢复或重绘不改计时；已到期时继续执行现有补换规则。</td></tr>
+<tr><td>整张照片读取临时失败</td><td>沿用现有保留上一组画面与重试规则；旧照片的背景只能与旧照片一起保留。</td><td>不将失败记为成功，不推迟计时。</td></tr>
+<tr><td>确认权限失效或当前照片不可用</td><td>沿用现有失效修复流程；需清除照片时，模糊派生背景也必须清除。</td><td>按现有权限、修复与持久化规则处理。</td></tr>
+</tbody></table></div>
+<p>背景更新与换图可以相互取消准备任务，但不能吞掉已收到的解锁、更换目录或已到期请求。例如定时已到期时切换背景，仍应完成一次到期换图，而不是把它变成仅样式刷新。旧异步结果必须同时校验照片场景、背景选项、Surface 尺寸与请求 token，不能覆盖新场景。</p>
+<p>多个正式 Engine 共享选项与照片选择，各自维护对应尺寸的缓存；预览维持独立照片场景。模式切回随机矩形时，优先复用当前场景原有的矩形列表；下次有效换图才重新生成。进程重建不要求恢复完全相同的矩形布局。</p>
+
+<h2 id="implementation">6. 实现建议与兼容性</h2>
+<h3>6.1 最小持久化扩展</h3>
+<p><code>WallpaperState</code> 新增一个 <code>backgroundStyle: String = "random_rectangles"</code>，支持 <code>random_rectangles</code> 与 <code>blurred_photo</code>。使用稳定存储值映射到 Kotlin 中的类型，避免直接依赖枚举反序列化导致未知值使整个配置不可读。</p>
+<p>旧记录缺失字段默认随机矩形；未知字符串只将该字段归一为随机矩形，保留目录、照片与全部自动更换设置。真正格式损坏仍沿用既有错误流程。无需新建存储文件或增加持久缓存、模糊参数、请求版本。设置写入通过现有 Repository 的单字段 updateData 完成。</p>
+<h3>6.2 对应现有代码</h3>
+<div class="scroll"><table><thead><tr><th>位置</th><th>建议改动</th></tr></thead><tbody>
+<tr><td>WallpaperState.kt / PhotoDirectoryRepository.kt</td><td>新增字段、归一化与 setBackgroundStyle；写入时只改变本字段，保留最新 URI 与计时。</td></tr>
+<tr><td>MainScreen.kt / MainActivity.kt / 字符串资源</td><td>新增单选区域、保存回调、失败提示和辅助说明，复用设置可编辑条件。</td></tr>
+<tr><td>WallpaperPhotoCoordinator.kt</td><td>区分背景变化与换图设置变化。不能把 backgroundStyle 直接并入 sameSettings 后走恢复扫描；增加纯渲染更新入口，并保留待处理换图事件及计时调度。</td></tr>
+<tr><td>AWallpaperService.kt / BackgroundRenderer.kt</td><td>按样式绘制；Engine 持有前景与派生背景。复用 PhotoLoader 方向修正后的像素，后台生成小图模糊缓存。</td></tr>
+<tr><td>PhotoLoader.kt / 准备结果与资源所有权</td><td>将缓存与工作缓冲计入现有总预算；若从 Bitmap 准备结果扩展为包含前景和背景的对象，应统一取消、转移和释放所有权。</td></tr>
+<tr><td>文档</td><td>实现时更新 README 的固定矩形描述，并与既有两份 Spec 相互链接；明确无图与单图更新行为。</td></tr>
+</tbody></table></div>
+<h3>6.3 资源与生命周期</h3>
+<ul>
+<li>继续覆盖项目当前 minSdk 23 起的支持范围。建议以 Kotlin 软件模糊作为统一路径，不引入仅新版系统可用的必要依赖。</li>
+<li>扫描、解码和模糊在绘制锁之外执行；重绘只消费就绪结果，不在主线程逐像素模糊、不持续刷新静态画面。</li>
+<li>现有预算按 <code>min(32 MiB, maxMemory / 8)</code> 再按 4 个 Engine 预留划分。新增背景、旧新前景和临时像素数组都计入同一预算，不能在原有三缓冲估算外叠加无上限分配。256 × 256 的单张 ARGB 缓存上限约 256 KiB，工作数组另算。</li>
+<li>换图、改样式、改尺寸、隐藏或销毁时取消无用任务。共享前景像素期间须保证其未被 recycle；替换后释放旧缓存，不能同时由多个所有者释放。</li>
+<li>缓存以当前照片场景、模式和尺寸为依据；仅 URI 相同不足以跨有效重新加载复用，避免源文件内容更新后仍显示旧背景。无需磁盘缓存或全局图片缓存。</li>
+<li>隐藏时不启动背景生成，恢复可见后按最新配置处理。模糊不能额外延长现有 5 秒扫描解码准备期限；到期限时若照片已就绪，可黑底降级。降级后普通重绘不循环重试，下一次重新加载或样式切换再尝试。</li>
+</ul>
+
+<h2 id="acceptance">7. 验收标准</h2>
+<div class="scroll"><table><thead><tr><th>ID</th><th>验证场景</th><th>通过条件</th></tr></thead><tbody>
+<tr><td>B-01</td><td>新安装、旧配置缺字段、未知样式值</td><td>均选随机矩形；目录、最近照片和计时设置保持可读，已知模糊值能持久恢复。</td></tr>
+<tr><td>B-02</td><td>选择、重复点击、保存失败与重开应用</td><td>两项互斥、整行可操作、状态可无障碍识别；成功后持久生效，失败回到原选项。</td></tr>
+<tr><td>B-03</td><td>横图、竖图、方图、全景、同比例图</td><td>前景完整且比例正确；留白由同图模糊背景填满，前景清晰不压暗，无黑色模糊边框。</td></tr>
+<tr><td>B-04</td><td>EXIF 旋转 / 镜像、透明 PNG、全透明图</td><td>两层方向一致；透明区符合黑底合成规则，无上一张照片残影。</td></tr>
+<tr><td>B-05</td><td>仅切背景效果，两个自动更换开关都关闭</td><td>可见画面更新；不调用目录扫描，不修改 currentPhotoUri 或 timerBaseAtMillis。</td></tr>
+<tr><td>B-06</td><td>多图 / 单图 / 空目录的解锁与定时更新</td><td>按既有选择及计时规则执行；单图模糊可保持相同画面，但成功更新仍重置有效基线。</td></tr>
+<tr><td>B-07</td><td>换图中切样式、到期时切样式、改目录</td><td>最新状态胜出，旧结果不回写；不吞掉必要换图，不发生 A 图前景配 B 图背景。</td></tr>
+<tr><td>B-08</td><td>正式壁纸与预览并存、隐藏后改设置</td><td>各 Engine 用自己的照片与尺寸生成；恢复时应用最新模式，预览不写正式 URI 或基线。</td></tr>
+<tr><td>B-09</td><td>无目录、空目录、权限失效、读取失败</td><td>模糊无图为黑底；临时失败按原规则保留整组画面，确认失效后不残留旧背景。</td></tr>
+<tr><td>B-10</td><td>注入模糊失败 / 预算不足 / 超时</td><td>照片已就绪时可黑底降级，不崩溃、不改选项、不改选图，不在每次重绘无限重试。</td></tr>
+<tr><td>B-11</td><td>旋转、Surface 重建、重复切换与销毁</td><td>前景始终居中完整；缓存尺寸正确、资源预算内、销毁后释放，无已回收 Bitmap 绘制错误。</td></tr>
+<tr><td>B-12</td><td>最低支持版本与当前真机视觉检查</td><td>记录系统版本、Surface 尺寸、样张及准备耗时和峰值像素内存；不阻塞绘制线程，无持续后台模糊任务。</td></tr>
+</tbody></table></div>
+<p>实现时用 Kotlin 单元测试覆盖样式兼容、fit/fill 几何、缓存键与纯样式更新不改计时；设备测试覆盖设置保存、实际像素方向与透明度、异步取消和资源释放。构建、lint 与现有照片 / 定时测试需要继续通过。最终以真实系统壁纸 Surface 上的样张验收视觉效果，示意图和假 Engine 测试不替代真机验收。</p>
+<h2 id="verified">8. 实现与验证记录 · 2026-10-31</h2>
+<p>已按本规格实现，使用 Kotlin 软件模糊、最长边 256 像素缓存、三轮盒式模糊与 22% 黑色遮罩。扫描、解码与背景准备共享原有准备期限，超时可降级为清晰照片加黑底。像素预算预留背景及其工作区，并将等待背景的前景计入四缓冲估算。</p>
+<div class="scroll"><table><thead><tr><th>检查</th><th>结果与范围</th></tr></thead><tbody>
+<tr><td>自动化</td><td>18 项 JVM 单元测试、51 项设备测试全部通过；Debug 构建及 lint 通过，lint 为 0 错误、6 项版本、旧图标资源及 KTX 建议。</td></tr>
+<tr><td>真实设备</td><td>NX888J / 努比亚 NaviX Ultra，Android 16；壁纸 Surface 1260 × 2800。因设备原应用签名不同，使用独立包 top.ntutn.awell.debug，未卸载或覆盖旧应用。</td></tr>
+<tr><td>目录与照片</td><td>从用户提供的 /mnt/shared/照片存档/ 复制横图、竖图、方图到设备 Download/AWell-test，通过系统 SAF 选择器真实授权，递归扫描识别 3 张候选照片。后续另建单张横图子目录供稳定检查；原始照片未修改。</td></tr>
+<tr><td>实际桌面</td><td>通过应用的标准系统预览入口应用到桌面，保留原锁屏。厂商界面先展示锁屏编辑卡片，完成后异步应用；以 dumpsys 确认桌面组件为本应用，再检查真实画面。横图和竖图均完整居中，留白为模糊同图。</td></tr>
+<tr><td>切换与恢复</td><td>实际来回切换两种背景，比对 DataStore 记录，URI 与开启中的计时基线均未变化。终止壁纸进程后系统重建服务，配置、照片与模糊背景恢复。</td></tr>
+<tr><td>资源观察</td><td>所测真实照片前景约 0.95 MiB，背景缓存 115 × 256、117760 字节；实际背景准备日志约 5–76 ms（含一次进程重建）。这是样本耗时与缓冲大小记录，未做完整进程峰值内存或耗电基准测试。</td></tr>
+<tr><td>保留状态</td><td>独立测试包已安装，桌面保留单张横图的模糊背景，解锁更换开启、定时更换关闭。样本目录保留在设备上。</td></tr>
+<tr><td>未覆盖</td><td>Android 23 真机、设备重启、正式长间隔等待、真实锁屏解锁广播与压力 / 耗电测试未执行。自动化覆盖定时、解锁策略、透明像素、前景边界、取消和超时降级，不能替代这些系统级验证。</td></tr>
+</tbody></table></div>
+<pre><code>./gradlew --no-configuration-cache -PkeyringSigning=false \
+  -PdebugApplicationIdSuffix=.debug \
+  :app:assembleDebug :app:testDebugUnitTest \
+  :app:connectedDebugAndroidTest :app:lintDebug</code></pre>
+<p class="muted">设备对两个紧邻的测试授权 Activity 启动进行了合并，导致原有授权释放测试超时；将两次授权合并到一次测试 Activity 中后，全部 51 项设备测试通过。此变更仅影响测试夹具。</p>
+<footer>默认仍为随机矩形；模糊拉伸使用同图等比裁切铺满，前景完整清晰。纯样式切换不换图、不重新计时；详细实现与测试报告以仓库代码及构建产物为准。</footer>
+</main></body>
+</html>

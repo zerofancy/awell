@@ -4,7 +4,7 @@
         <!-- Isolated fixture provider, packaged only in the instrumented-test APK. -->
         <provider
             android:name="top.ntutn.awall.FixtureDocumentsProvider"
-            android:authorities="top.ntutn.awell.test.photos"
+            android:authorities="${applicationId}.photos"
             android:exported="true"
             android:permission="android.permission.MANAGE_DOCUMENTS"
             android:grantUriPermissions="true" />

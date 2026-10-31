@@ -31,4 +31,10 @@
     <string name="settings_load_failed">暂时无法读取设置，请重试。</string>
     <string name="retry_settings">重试</string>
     <string name="settings_save_failed">设置保存失败，已保留原来的设置，请重试。</string>
+    <string name="background_title">背景效果</string>
+    <string name="background_random">随机矩形</string>
+    <string name="background_random_hint">用随机彩色矩形填充照片留白</string>
+    <string name="background_blurred">模糊拉伸</string>
+    <string name="background_blurred_hint">用同一张照片铺满、模糊并压暗背景</string>
+    <string name="background_save_failed">背景效果保存失败，请重试。</string>
 </resources>

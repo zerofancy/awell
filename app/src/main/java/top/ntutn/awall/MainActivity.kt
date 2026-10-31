@@ -42,14 +42,14 @@ class MainActivity : ComponentActivity() {
                 val scope = rememberCoroutineScope()
                 var selecting by remember { mutableStateOf(false) }
                 var savingSettings by remember { mutableStateOf(false) }
-                fun saveSettings(update: suspend () -> Unit) {
+                fun saveSettings(errorMessage: Int = R.string.settings_save_failed, update: suspend () -> Unit) {
                     if (savingSettings || selecting || wallpaperState == null || storageError) return
                     savingSettings = true
                     scope.launch {
                         try { update() }
                         catch (error: CancellationException) { throw error }
                         catch (_: Exception) {
-                            Toast.makeText(this@MainActivity, R.string.settings_save_failed, Toast.LENGTH_LONG).show()
+                            Toast.makeText(this@MainActivity, errorMessage, Toast.LENGTH_LONG).show()
                         } finally { savingSettings = false }
                     }
                 }
@@ -78,6 +78,9 @@ class MainActivity : ComponentActivity() {
                     wallpaperState = wallpaperState,
                     savingSettings = savingSettings,
                     storageError = storageError,
+                    onBackgroundStyleChanged = { style ->
+                        saveSettings(R.string.background_save_failed) { repository.setBackgroundStyle(style) }
+                    },
                     onUnlockEnabledChanged = { enabled -> saveSettings { repository.setUnlockEnabled(enabled) } },
                     onTimerEnabledChanged = { enabled -> saveSettings { repository.setTimerEnabled(enabled) } },
                     onIntervalChanged = { interval -> saveSettings { repository.setIntervalMillis(interval) } },

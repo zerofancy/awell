@@ -5,8 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
-import android.graphics.Paint
-import android.graphics.RectF
+import android.os.SystemClock
+import java.util.WeakHashMap
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
 import androidx.core.content.ContextCompat
@@ -18,7 +18,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
-import top.ntutn.awall.photos.BackgroundRenderer
+import top.ntutn.awall.photos.WallpaperFrameRenderer
+import top.ntutn.awall.photos.BACKGROUND_RESERVE_BYTES
 import top.ntutn.awall.photos.PHOTO_TIMEOUT_MS
 import top.ntutn.awall.photos.PhotoDirectoryRepository
 import top.ntutn.awall.photos.PhotoLoader
@@ -27,6 +28,7 @@ import top.ntutn.awall.photos.WallpaperPhotoClient
 import top.ntutn.awall.photos.WallpaperPhotoCoordinator
 import top.ntutn.awall.photos.WallpaperScene
 import kotlin.math.min
+import kotlin.time.Duration.Companion.milliseconds
 
 class AWallpaperService : WallpaperService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -65,13 +67,12 @@ class AWallpaperService : WallpaperService() {
     inner class AWallEngine : Engine(), WallpaperPhotoClient {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         private val loader = PhotoLoader(contentResolver)
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        private val frames = WallpaperFrameRenderer(scope, { ready }, ::drawFrame)
+        private val preparationDeadlines = WeakHashMap<Bitmap, Long>()
         private val loads = RequestVersion()
         private var load: Job? = null
         private var owner: WallpaperPhotoCoordinator? = null
         private var desired: WallpaperScene? = null
-        private var displayed: WallpaperScene? = null
-        private var bitmap: Bitmap? = null
         private var surfaceReady = false
         private var visible = false
         private var destroyed = false
@@ -99,6 +100,7 @@ class AWallpaperService : WallpaperService() {
             surfaceReady = true
             if (changed) {
                 cancelLoad()
+                frames.cancel()
                 reloadCurrent()
             }
             drawFrame()
@@ -108,7 +110,8 @@ class AWallpaperService : WallpaperService() {
         override fun onVisibilityChanged(visible: Boolean) {
             super.onVisibilityChanged(visible)
             this.visible = visible
-            if (!visible) cancelLoad() else {
+            if (!visible) { cancelLoad(); frames.cancel() } else {
+                frames.refreshStyle()
                 reloadCurrent()
                 drawFrame()
             }
@@ -123,61 +126,55 @@ class AWallpaperService : WallpaperService() {
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
             surfaceReady = false
             cancelLoad()
+            frames.cancel()
             owner?.visibilityChanged()
             super.onSurfaceDestroyed(holder)
         }
 
-        override suspend fun prepare(photo: android.net.Uri): Bitmap {
+        override suspend fun prepare(photo: android.net.Uri): Bitmap =
+            prepare(photo, SystemClock.elapsedRealtime() + PHOTO_TIMEOUT_MS)
+
+        override suspend fun prepare(photo: android.net.Uri, deadlineMillis: Long): Bitmap {
             // Even with multiple Engines, total live pixel buffers stay below the process allowance.
             val budget = min(32L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 8) / MAX_ENGINE_ALLOWANCE
-            return loader.load(photo, width.coerceAtLeast(1), height.coerceAtLeast(1), budget)
+            return loader.load(photo, width.coerceAtLeast(1), height.coerceAtLeast(1),
+                (budget - BACKGROUND_RESERVE_BYTES).coerceAtLeast(1), retainedBuffers = 4).also { preparationDeadlines[it] = deadlineMillis }
         }
 
         override fun sceneChanged(scene: WallpaperScene) {
+            if (desired !== scene) { cancelLoad(); frames.cancel() }
             desired = scene
             if (scene.photo == null) commit(scene, null) else reloadCurrent()
         }
+
+        override fun backgroundStyleChanged(style: String) = frames.setStyle(style)
 
         override fun commit(scene: WallpaperScene, bitmap: Bitmap?) {
             if (destroyed) { bitmap?.recycle(); return }
             cancelLoad()
             desired = scene
-            displayed = scene
-            decodedWidth = width
-            decodedHeight = height
-            val old = this.bitmap
-            this.bitmap = bitmap
-            drawFrame()
-            if (old !== bitmap) old?.recycle()
+            frames.submit(scene, bitmap, width, height, deadline(bitmap))
         }
-
-        private var decodedWidth = 0
-        private var decodedHeight = 0
 
         private fun reloadCurrent() {
             val scene = desired ?: return
             val photo = scene.photo ?: return
             if (!ready || load?.isActive == true) return
-            if (scene === displayed && bitmap != null && decodedWidth == width && decodedHeight == height) return
+            if (frames.matches(scene, width, height)) return
             val token = loads.next()
             val loadWidth = width
             val loadHeight = height
             load = scope.launch {
                 var candidate: Bitmap? = null
                 try {
-                    candidate = withTimeout(PHOTO_TIMEOUT_MS) {
+                    candidate = withTimeout(PHOTO_TIMEOUT_MS.milliseconds) {
                         val tree = scene.tree ?: return@withTimeout null
                         repository.withDirectory(tree) { prepare(photo) }
                     }
                     if (candidate != null && loads.isCurrent(token) && desired === scene && ready) {
-                        val old = bitmap
-                        bitmap = candidate
+                        val prepared = candidate
                         candidate = null
-                        displayed = scene
-                        decodedWidth = loadWidth
-                        decodedHeight = loadHeight
-                        drawFrame()
-                        old?.recycle()
+                        frames.submit(scene, prepared, loadWidth, loadHeight, deadline(prepared))
                     }
                 } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
                     // Keep the old frame. A later visibility event can retry this selection.
@@ -190,6 +187,9 @@ class AWallpaperService : WallpaperService() {
             }
         }
 
+        private fun deadline(image: Bitmap?): Long = preparationDeadlines.remove(image)
+            ?: (SystemClock.elapsedRealtime() + PHOTO_TIMEOUT_MS)
+
         private fun cancelLoad() {
             loads.next()
             load?.cancel()
@@ -198,18 +198,9 @@ class AWallpaperService : WallpaperService() {
 
         private fun drawFrame() {
             if (!ready || !surfaceHolder.surface.isValid) return
-            val scene = displayed ?: return
             val canvas = try { surfaceHolder.lockCanvas() } catch (_: RuntimeException) { null } ?: return
             try {
-                BackgroundRenderer.draw(canvas, scene.background, paint)
-                bitmap?.let { image ->
-                    val scale = min(canvas.width.toFloat() / image.width, canvas.height.toFloat() / image.height)
-                    val left = (canvas.width - image.width * scale) / 2
-                    val top = (canvas.height - image.height * scale) / 2
-                    paint.color = android.graphics.Color.WHITE
-                    canvas.drawBitmap(image, null, RectF(left, top, left + image.width * scale,
-                        top + image.height * scale), paint)
-                }
+                frames.draw(canvas)
             } finally {
                 try { surfaceHolder.unlockCanvasAndPost(canvas) } catch (_: RuntimeException) { /* Surface was removed. */ }
             }
@@ -220,8 +211,7 @@ class AWallpaperService : WallpaperService() {
             owner?.detach(this)
             if (isPreview) owner?.close()
             scope.cancel()
-            bitmap?.recycle()
-            bitmap = null
+            frames.close()
             super.onDestroy()
         }
     }

@@ -10,6 +10,7 @@
 </head>
 <body><main>
 <header><div class="tag">AWELL / FEATURE SPEC / DRAFT</div><h1>本地照片动态壁纸</h1><p>选择本地照片目录，在现有随机矩形背景上叠加照片，并在每次解锁后随机更换。</p><div class="meta">版本 0.3 · 2026-10-19 · 基于当前仓库代码 · 本文为设计稿，尚未实现</div></header>
+<p class="note">2026-10-31 扩展：背景可选“随机矩形”或“模糊拉伸”，纯背景切换不换图、不重新计时。本文中固定矩形及单图随机背景的相关描述，以<a href="blurred-photo-background.html">模糊拉伸背景 Spec</a>为准。</p>
 
 <div class="note"><strong>后续扩展：</strong><a href="scheduled-wallpaper.html">定时更换壁纸 Spec（已于 2026-10-27 实现）</a>新增独立的定时与解锁开关、启动到期检查与补偿，并将第 8 节的 SharedPreferences 存储建议升级为 DataStore。启用定时后，本文“不定时刷新”以及“恢复可见不换图”的相关约束由新稿覆盖；其余规则继续适用。</div>
 

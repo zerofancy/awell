@@ -2,6 +2,7 @@ package top.ntutn.awall.photos
 
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -14,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.FileNotFoundException
+import kotlin.time.Duration.Companion.milliseconds
 
 /** Metadata is shared by official Engines; each Engine owns its size-specific Bitmap. */
 data class WallpaperScene(
@@ -24,7 +26,9 @@ data class WallpaperScene(
 
 interface WallpaperPhotoClient {
     val ready: Boolean
+    fun backgroundStyleChanged(style: String) {}
     suspend fun prepare(photo: Uri): Bitmap
+    suspend fun prepare(photo: Uri, deadlineMillis: Long): Bitmap = prepare(photo)
     fun commit(scene: WallpaperScene, bitmap: Bitmap?)
     fun sceneChanged(scene: WallpaperScene)
 }
@@ -61,6 +65,9 @@ class WallpaperPhotoCoordinator(
                 val previous = configuration
                 val changedDirectory = previous != null && directory != source
                 val changedSettings = previous != null && !sameSettings(previous, state)
+                if (previous?.backgroundStyle != state.backgroundStyle) {
+                    clients.forEach { it.backgroundStyleChanged(state.backgroundStyle) }
+                }
                 configuration = state
                 directory = source
                 if (!state.unlockEnabled) unlockPending = false
@@ -82,6 +89,7 @@ class WallpaperPhotoCoordinator(
 
     fun attach(client: WallpaperPhotoClient) {
         clients.add(client)
+        client.backgroundStyleChanged(configuration?.backgroundStyle ?: BackgroundStyle.RANDOM_RECTANGLES)
         client.sceneChanged(scene)
         reconcile()
     }
@@ -200,7 +208,8 @@ class WallpaperPhotoCoordinator(
         try {
             var next: WallpaperScene? = null
             var changed = rotate
-            withTimeout(timeoutMillis) {
+            val deadlineMillis = SystemClock.elapsedRealtime() + timeoutMillis
+            withTimeout(timeoutMillis.milliseconds) {
                 if (tree == null) {
                     next = WallpaperScene(null, null)
                     return@withTimeout
@@ -216,7 +225,7 @@ class WallpaperPhotoCoordinator(
                     var selected: Uri? = null
                     for (photo in candidates) {
                         try {
-                            prepared[primary] = primary.prepare(photo)
+                            prepared[primary] = primary.prepare(photo, deadlineMillis)
                             selected = photo
                             break
                         } catch (error: CancellationException) { throw error }
@@ -229,7 +238,7 @@ class WallpaperPhotoCoordinator(
                     }, files.uris.size, files.partial)
                     if (selected == null && current != null && !currentKnownMissing) {
                         try {
-                            val old = primary.prepare(current)
+                            val old = primary.prepare(current, deadlineMillis)
                             if (scene.photo == null) {
                                 prepared[primary] = old
                                 next = WallpaperScene(tree, current)
@@ -253,7 +262,7 @@ class WallpaperPhotoCoordinator(
                 val selected = next?.photo
                 if (selected != null) {
                     clients.filter { it !== primary && it.ready }.forEach { client ->
-                        try { prepared[client] = client.prepare(selected) }
+                        try { prepared[client] = client.prepare(selected, deadlineMillis) }
                         catch (error: CancellationException) { throw error }
                         catch (_: Exception) { /* The secondary Engine reloads the shared choice later. */ }
                     }
@@ -306,7 +315,7 @@ class WallpaperPhotoCoordinator(
             var accepted = false
             withContext(NonCancellable) {
                 repository.updateState { latest ->
-                    if (requests.isCurrent(token) && latest == snapshot && repository.directory.value == source) {
+                    if (requests.isCurrent(token) && latest.copy(backgroundStyle = snapshot.backgroundStyle) == snapshot && repository.directory.value == source) {
                         accepted = true
                         latest.copy(
                             currentPhotoUri = next.photo?.toString(),

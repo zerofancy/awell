@@ -22,6 +22,7 @@ val SUPPORTED_INTERVALS_MILLIS = listOf(15 * 60 * 1_000L, 30 * 60 * 1_000L,
 
 @Serializable
 data class WallpaperState(
+    val backgroundStyle: String = BackgroundStyle.RANDOM_RECTANGLES,
     val directoryUri: String? = null,
     val directoryName: String? = null,
     val currentPhotoUri: String? = null,
@@ -40,8 +41,10 @@ object WallpaperStateSerializer : Serializer<WallpaperState> {
 
     override suspend fun readFrom(input: InputStream): WallpaperState = try {
         val state = json.decodeFromString<WallpaperState>(input.readBytes().decodeToString())
-        if (state.intervalMillis in SUPPORTED_INTERVALS_MILLIS) state
-        else state.copy(intervalMillis = DEFAULT_INTERVAL_MILLIS)
+        state.copy(
+            backgroundStyle = BackgroundStyle.normalize(state.backgroundStyle),
+            intervalMillis = state.intervalMillis.takeIf { it in SUPPORTED_INTERVALS_MILLIS } ?: DEFAULT_INTERVAL_MILLIS,
+        )
     } catch (error: SerializationException) {
         throw CorruptionException("Cannot decode wallpaper settings", error)
     }

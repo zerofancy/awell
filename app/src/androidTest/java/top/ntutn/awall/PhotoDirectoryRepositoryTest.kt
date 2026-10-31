@@ -29,7 +29,8 @@ import java.util.UUID
 @RunWith(AndroidJUnit4::class)
 class PhotoDirectoryRepositoryTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
-    private val authority = "top.ntutn.awell.test.photos"
+    private val testPackage = InstrumentationRegistry.getInstrumentation().context.packageName
+    private val authority = "$testPackage.photos"
     private val root = DocumentsContract.buildTreeDocumentUri(authority, "root")
     private val empty = DocumentsContract.buildTreeDocumentUri(authority, "empty")
 
@@ -70,8 +71,7 @@ class PhotoDirectoryRepositoryTest {
 
     @Test fun obsoleteGrantIsReleasedOnlyAfterReaderExits() = isolated { fixture ->
         val repository = fixture.repository
-        grant(root)
-        grant(empty)
+        grant(root, empty)
         repository.select(root, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         val entered = CompletableDeferred<Unit>()
         val exit = CompletableDeferred<Unit>()
@@ -186,16 +186,26 @@ class PhotoDirectoryRepositoryTest {
         }
     }
 
-    private suspend fun grant(tree: Uri) {
+    @Test fun backgroundStyleSurvivesReopenWithoutChangingPhotoOrTimer() = isolated { fixture ->
+        val repository = fixture.repository
+        repository.updateState { it.copy(currentPhotoUri = "content://photos/a", timerEnabled = true,
+            timerBaseAtMillis = 42, unlockEnabled = false) }
+        val old = repository.state.value!!
+        repository.setBackgroundStyle(BackgroundStyle.BLURRED_PHOTO)
+        assertEquals(old.copy(backgroundStyle = BackgroundStyle.BLURRED_PHOTO), fixture.reopen().state.value)
+    }
+
+    private suspend fun grant(vararg trees: Uri) {
         context.startActivity(Intent().apply {
-            setClassName("top.ntutn.awell.test", "top.ntutn.awall.FixtureGrantActivity")
-            data = tree
+            setClassName(testPackage, "top.ntutn.awall.FixtureGrantActivity")
+            data = trees.first()
+            putExtra("uris", trees.map(Uri::toString).toTypedArray())
             putExtra("recipient", context.packageName)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         })
         kotlinx.coroutines.withTimeout(3000) {
-            while (context.checkUriPermission(tree, android.os.Process.myPid(), android.os.Process.myUid(),
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            while (trees.any { tree -> context.checkUriPermission(tree, android.os.Process.myPid(), android.os.Process.myUid(),
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION) != android.content.pm.PackageManager.PERMISSION_GRANTED }) {
                 kotlinx.coroutines.delay(10)
             }
         }

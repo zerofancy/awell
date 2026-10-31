@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material3.RadioButton
+import top.ntutn.awall.photos.BackgroundStyle
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -52,6 +56,7 @@ fun MainScreen(
     wallpaperState: WallpaperState? = null,
     savingSettings: Boolean = false,
     storageError: Boolean = false,
+    onBackgroundStyleChanged: (String) -> Unit = {},
     onUnlockEnabledChanged: (Boolean) -> Unit = {},
     onTimerEnabledChanged: (Boolean) -> Unit = {},
     onIntervalChanged: (Long) -> Unit = {},
@@ -83,6 +88,11 @@ fun MainScreen(
             OutlinedButton(onClick = onSelectDirectory, enabled = canEditSettings) {
                 Text(stringResource(if (directoryState.directory == null) R.string.select_directory else R.string.change_directory))
             }
+            BackgroundSetting(
+                style = wallpaperState?.backgroundStyle ?: BackgroundStyle.RANDOM_RECTANGLES,
+                enabled = canEditSettings,
+                onChanged = onBackgroundStyleChanged,
+            )
             Text(stringResource(R.string.automatic_rotation_title), style = MaterialTheme.typography.titleMedium)
             when {
                 storageError -> {
@@ -115,6 +125,30 @@ fun MainScreen(
             Text(stringResource(R.string.automatic_rotation_hint), style = MaterialTheme.typography.bodySmall)
             Text(stringResource(R.string.photo_wallpaper_hint), style = MaterialTheme.typography.bodySmall)
             Button(onClick = onOpenWallpaperPreview) { Text(stringResource(R.string.wallpaper_preview_button)) }
+        }
+    }
+}
+
+@Composable
+private fun BackgroundSetting(style: String, enabled: Boolean, onChanged: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().selectableGroup()) {
+        Text(stringResource(R.string.background_title), style = MaterialTheme.typography.titleMedium)
+        listOf(
+            Triple(BackgroundStyle.RANDOM_RECTANGLES, R.string.background_random, R.string.background_random_hint),
+            Triple(BackgroundStyle.BLURRED_PHOTO, R.string.background_blurred, R.string.background_blurred_hint),
+        ).forEach { (value, title, hint) ->
+            Row(
+                Modifier.fillMaxWidth().testTag("background_$value")
+                    .selectable(selected = style == value, enabled = enabled, role = Role.RadioButton,
+                        onClick = { if (style != value) onChanged(value) }).padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(selected = style == value, onClick = null, enabled = enabled)
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(stringResource(title))
+                    Text(stringResource(hint), style = MaterialTheme.typography.bodySmall)
+                }
+            }
         }
     }
 }

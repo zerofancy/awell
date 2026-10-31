@@ -55,6 +55,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Opt-in isolated install for devices with an existing differently signed APK.
+            applicationIdSuffix = providers.gradleProperty("debugApplicationIdSuffix").orNull
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

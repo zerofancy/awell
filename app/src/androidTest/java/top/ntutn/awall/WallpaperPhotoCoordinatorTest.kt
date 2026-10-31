@@ -358,6 +358,37 @@ class WallpaperPhotoCoordinatorTest {
         }
     }
 
+    @Test fun styleOnlyChangeDoesNotScanOrChangeSceneOrBaseline() = scenario { source, coordinator, client ->
+        source.last = source.photos.first()
+        source.state.value = source.state.value!!.copy(unlockEnabled = false, timerEnabled = true, timerBaseAtMillis = 5_000)
+        coordinator.attach(client)
+        await { client.commits.isNotEmpty() }
+        val old = client.commits.single()
+        val scans = source.scans
+        val state = source.state.value!!
+        source.state.value = state.copy(backgroundStyle = BackgroundStyle.BLURRED_PHOTO)
+        await { client.style == BackgroundStyle.BLURRED_PHOTO }
+        delay(40)
+        assertEquals(scans, source.scans)
+        assertEquals(listOf(old), client.commits)
+        assertEquals(state.copy(backgroundStyle = BackgroundStyle.BLURRED_PHOTO), source.state.value)
+        assertEquals(0, source.saves)
+    }
+
+    @Test fun styleChangeDuringUnlockDoesNotSwallowPreparedRotation() = scenario { source, coordinator, client ->
+        coordinator.attach(client)
+        await { client.commits.isNotEmpty() }
+        client.prepareHook = { delay(100) }
+        val old = source.last
+        coordinator.unlocked()
+        delay(30)
+        source.state.value = source.state.value!!.copy(backgroundStyle = BackgroundStyle.BLURRED_PHOTO)
+        await { client.commits.size == 2 }
+        assertNotEquals(old, source.last)
+        assertEquals(BackgroundStyle.BLURRED_PHOTO, client.style)
+        assertEquals(BackgroundStyle.BLURRED_PHOTO, source.state.value!!.backgroundStyle)
+    }
+
     private fun scenario(
         preview: Boolean = false,
         timeoutMillis: Long = 2000,
@@ -383,6 +414,8 @@ class WallpaperPhotoCoordinatorTest {
 
     private class FakeClient : WallpaperPhotoClient {
         override var ready = true
+        var style = BackgroundStyle.RANDOM_RECTANGLES
+        override fun backgroundStyleChanged(style: String) { this.style = style }
         var preparing = false
         var bitmap: Bitmap? = null
         var prepareHook: suspend (Uri) -> Unit = {}
