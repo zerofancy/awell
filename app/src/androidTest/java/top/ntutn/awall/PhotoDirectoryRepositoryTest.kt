@@ -7,6 +7,12 @@ import android.provider.DocumentsContract
 import androidx.datastore.core.DataStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
+import java.io.IOException
+import java.util.UUID
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,9 +28,6 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import top.ntutn.awall.photos.*
-import java.io.File
-import java.io.IOException
-import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class PhotoDirectoryRepositoryTest {
@@ -104,7 +107,7 @@ class PhotoDirectoryRepositoryTest {
         repository.setTimerEnabled(true)
         assertEquals(10_000L, repository.state.value!!.timerBaseAtMillis)
         repository.setUnlockEnabled(false)
-        repository.setIntervalMillis(15 * 60 * 1_000L)
+        repository.setInterval(15.minutes)
         fixture.now = 20_000
         repository.setTimerEnabled(true)
         assertEquals(10_000L, repository.state.value!!.timerBaseAtMillis)
@@ -113,7 +116,7 @@ class PhotoDirectoryRepositoryTest {
         val restored = fixture.reopen()
         assertEquals("content://photos/recent", restored.state.value!!.currentPhotoUri)
         assertEquals(20_000L, restored.state.value!!.timerBaseAtMillis)
-        assertEquals(15 * 60 * 1_000L, restored.state.value!!.intervalMillis)
+        assertEquals(15.minutes, restored.state.value!!.interval)
         restored.setTimerEnabled(false)
         assertNull(restored.state.value!!.timerBaseAtMillis)
         assertFalse(restored.state.value!!.unlockEnabled)
@@ -203,10 +206,10 @@ class PhotoDirectoryRepositoryTest {
             putExtra("recipient", context.packageName)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         })
-        kotlinx.coroutines.withTimeout(3000) {
+        kotlinx.coroutines.withTimeout(3.seconds) {
             while (trees.any { tree -> context.checkUriPermission(tree, android.os.Process.myPid(), android.os.Process.myUid(),
                     Intent.FLAG_GRANT_READ_URI_PERMISSION) != android.content.pm.PackageManager.PERMISSION_GRANTED }) {
-                kotlinx.coroutines.delay(10)
+                kotlinx.coroutines.delay(10.milliseconds)
             }
         }
     }

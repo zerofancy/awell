@@ -3,19 +3,21 @@ package top.ntutn.awall
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertIsOff
-import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
-import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -76,20 +78,20 @@ class MainScreenTest {
                 MainScreen(
                     onOpenWallpaperPreview = {},
                     wallpaperState = state,
-                    onIntervalChanged = { state = state.copy(intervalMillis = it) },
+                    onIntervalChanged = { state = state.copy(intervalMillis = it.inWholeMilliseconds) },
                 )
             }
         }
         listOf(
-            "15 分钟" to 15 * 60_000L,
-            "30 分钟" to 30 * 60_000L,
-            "1 小时" to 60 * 60_000L,
-            "6 小时" to 6 * 60 * 60_000L,
-            "24 小时" to 24 * 60 * 60_000L,
+            "15 分钟" to 15.minutes,
+            "30 分钟" to 30.minutes,
+            "1 小时" to 1.hours,
+            "6 小时" to 6.hours,
+            "24 小时" to 24.hours,
         ).forEach { (label, duration) ->
             composeRule.onNodeWithTag("interval_setting").performScrollTo().performClick()
             composeRule.onNodeWithText(label).performClick()
-            composeRule.runOnIdle { assertEquals(duration, state.intervalMillis) }
+            composeRule.runOnIdle { assertEquals(duration, state.interval) }
             composeRule.onNodeWithText("更换间隔：$label").assertIsDisplayed()
         }
     }

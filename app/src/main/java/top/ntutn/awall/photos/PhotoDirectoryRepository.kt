@@ -6,24 +6,26 @@ import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
 import androidx.datastore.core.DataStore
+import java.io.FileNotFoundException
+import java.io.IOException
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import java.io.FileNotFoundException
-import java.io.IOException
 
-const val PHOTO_TIMEOUT_MS = 5_000L
+val PHOTO_TIMEOUT = 5.seconds
 
 data class PhotoDirectory(val uri: Uri, val name: String, val revision: Long = 0)
 enum class DirectoryStatus { UNSELECTED, SCANNING, READY, EMPTY, INACCESSIBLE, RETRY, UNDECODABLE }
@@ -121,9 +123,9 @@ class PhotoDirectoryRepository internal constructor(
         }
     }
 
-    suspend fun setIntervalMillis(interval: Long) {
-        require(interval in SUPPORTED_INTERVALS_MILLIS) { "Unsupported wallpaper interval" }
-        updateState { it.copy(intervalMillis = interval) }
+    suspend fun setInterval(interval: Duration) {
+        require(interval in SUPPORTED_INTERVALS) { "Unsupported wallpaper interval" }
+        updateState { it.copy(intervalMillis = interval.inWholeMilliseconds) }
     }
 
     /** Call on the main thread. Existing readers keep their old grant until they have exited. */
@@ -134,7 +136,7 @@ class PhotoDirectoryRepository internal constructor(
         try {
             require(resultFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) { "Missing read grant" }
             resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            val name = withTimeout(PHOTO_TIMEOUT_MS) { readRootName(uri) }
+            val name = withTimeout(PHOTO_TIMEOUT) { readRootName(uri) }
             // Once persistence starts, finish the in-memory transition even if the Activity closes.
             withContext(NonCancellable) {
                 updateState {
@@ -224,7 +226,7 @@ class PhotoDirectoryRepository internal constructor(
         val tree = directory.value?.uri ?: return
         report(tree, DirectoryStatus.SCANNING)
         try {
-            val result = withTimeout(PHOTO_TIMEOUT_MS) { withDirectory(tree) { scan(tree) } }
+            val result = withTimeout(PHOTO_TIMEOUT) { withDirectory(tree) { scan(tree) } }
             report(tree, if (result.uris.isEmpty()) DirectoryStatus.EMPTY else DirectoryStatus.READY,
                 result.uris.size, result.partial)
         } catch (error: kotlinx.coroutines.TimeoutCancellationException) {

@@ -6,19 +6,22 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.core.DataStoreFactory
 import androidx.datastore.core.Serializer
 import androidx.datastore.migrations.SharedPreferencesMigration
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 
-const val DEFAULT_INTERVAL_MILLIS = 60 * 60 * 1_000L
-val SUPPORTED_INTERVALS_MILLIS = listOf(15 * 60 * 1_000L, 30 * 60 * 1_000L,
-    DEFAULT_INTERVAL_MILLIS, 6 * DEFAULT_INTERVAL_MILLIS, 24 * DEFAULT_INTERVAL_MILLIS)
+val DEFAULT_INTERVAL = 1.hours
+val SUPPORTED_INTERVALS = listOf(15.minutes, 30.minutes, DEFAULT_INTERVAL, 6.hours, 24.hours)
 
 @Serializable
 data class WallpaperState(
@@ -28,9 +31,12 @@ data class WallpaperState(
     val currentPhotoUri: String? = null,
     val unlockEnabled: Boolean = true,
     val timerEnabled: Boolean = false,
-    val intervalMillis: Long = DEFAULT_INTERVAL_MILLIS,
+    val intervalMillis: Long = DEFAULT_INTERVAL.inWholeMilliseconds,
     val timerBaseAtMillis: Long? = null,
-)
+) {
+    // Preserve the existing JSON field; business code uses the typed duration.
+    val interval: Duration get() = intervalMillis.milliseconds
+}
 
 object WallpaperStateSerializer : Serializer<WallpaperState> {
     private val json = Json {
@@ -43,7 +49,7 @@ object WallpaperStateSerializer : Serializer<WallpaperState> {
         val state = json.decodeFromString<WallpaperState>(input.readBytes().decodeToString())
         state.copy(
             backgroundStyle = BackgroundStyle.normalize(state.backgroundStyle),
-            intervalMillis = state.intervalMillis.takeIf { it in SUPPORTED_INTERVALS_MILLIS } ?: DEFAULT_INTERVAL_MILLIS,
+            intervalMillis = (state.interval.takeIf { it in SUPPORTED_INTERVALS } ?: DEFAULT_INTERVAL).inWholeMilliseconds,
         )
     } catch (error: SerializationException) {
         throw CorruptionException("Cannot decode wallpaper settings", error)

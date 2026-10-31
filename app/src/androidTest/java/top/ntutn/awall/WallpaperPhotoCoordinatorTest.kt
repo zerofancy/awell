@@ -3,13 +3,17 @@ package top.ntutn.awall
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import java.io.IOException
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import top.ntutn.awall.photos.*
-import java.io.IOException
 
 @RunWith(AndroidJUnit4::class)
 class WallpaperPhotoCoordinatorTest {
@@ -19,7 +23,7 @@ class WallpaperPhotoCoordinatorTest {
         await { client.commits.size == 1 }
         val first = client.commits.single()
         repeat(3) { coordinator.visibilityChanged() }
-        delay(60)
+        delay(60.milliseconds)
         assertEquals(1, client.commits.size)
         coordinator.unlocked()
         await { client.commits.size == 2 }
@@ -33,7 +37,7 @@ class WallpaperPhotoCoordinatorTest {
         client.ready = false
         coordinator.attach(client)
         repeat(3) { coordinator.unlocked() }
-        delay(40)
+        delay(40.milliseconds)
         assertEquals(0, source.scans)
         client.ready = true
         coordinator.visibilityChanged()
@@ -58,7 +62,7 @@ class WallpaperPhotoCoordinatorTest {
         coordinator.visibilityChanged()
         await { client.commits.size == 1 }
         coordinator.unlocked()
-        delay(50)
+        delay(50.milliseconds)
         assertEquals(1, client.commits.size)
         assertEquals(0, source.saves)
     }
@@ -66,7 +70,7 @@ class WallpaperPhotoCoordinatorTest {
     @Test fun staleDecodeCannotOverwriteNewDirectory() = scenario { source, coordinator, client ->
         val oldTree = source.directory.value!!.uri
         client.prepareHook = { photo ->
-            if (photo.toString().contains("old")) withContext(NonCancellable) { delay(150) }
+            if (photo.toString().contains("old")) withContext(NonCancellable) { delay(150.milliseconds) }
         }
         coordinator.attach(client)
         coordinator.visibilityChanged()
@@ -76,17 +80,17 @@ class WallpaperPhotoCoordinatorTest {
         source.state.value = source.state.value!!.copy(directoryUri = newTree.toString(), currentPhotoUri = null)
         source.directory.value = PhotoDirectory(newTree, "new")
         await { client.commits.any { it.photo != null && it.tree == newTree } }
-        delay(200)
+        delay(200.milliseconds)
         assertFalse(client.commits.any { it.photo != null && it.tree == oldTree })
         assertEquals(newTree, client.commits.last().tree)
     }
 
-    @Test fun timedOutScanKeepsWholeOldFrame() = scenario(timeoutMillis = 80) { source, coordinator, client ->
+    @Test fun timedOutScanKeepsWholeOldFrame() = scenario(timeout = 80.milliseconds) { source, coordinator, client ->
         coordinator.attach(client)
         coordinator.visibilityChanged()
         await { client.commits.size == 1 }
         val first = client.commits.last()
-        source.scanDelay = 300
+        source.scanDelay = 300.milliseconds
         coordinator.unlocked()
         await { source.status == DirectoryStatus.RETRY }
         assertEquals(listOf(first), client.commits)
@@ -100,7 +104,7 @@ class WallpaperPhotoCoordinatorTest {
         client.prepareHook = { if (it != first.photo) throw IOException("corrupt") }
         coordinator.unlocked()
         await { source.status == DirectoryStatus.UNDECODABLE }
-        delay(30)
+        delay(30.milliseconds)
         assertEquals(listOf(first), client.commits)
     }
 
@@ -131,7 +135,7 @@ class WallpaperPhotoCoordinatorTest {
         assertNotEquals(old, client.commits.single().photo)
         assertEquals(10_000L, source.state.value!!.timerBaseAtMillis)
         repeat(5) { coordinator.visibilityChanged() }
-        delay(50)
+        delay(50.milliseconds)
         assertEquals(1, source.saves)
         assertEquals(1, client.commits.size)
     }
@@ -142,7 +146,7 @@ class WallpaperPhotoCoordinatorTest {
         client.ready = false
         coordinator.attach(client)
         repeat(4) { coordinator.visibilityChanged() }
-        delay(50)
+        delay(50.milliseconds)
         assertEquals(0, source.scans)
         assertEquals(0, source.saves)
         client.ready = true
@@ -158,7 +162,7 @@ class WallpaperPhotoCoordinatorTest {
         coordinator.attach(client)
         await { client.commits.isNotEmpty() }
         repeat(3) { coordinator.visibilityChanged() }
-        delay(40)
+        delay(40.milliseconds)
         assertNull(client.commits.single().photo)
         assertEquals(5_000L, source.state.value!!.timerBaseAtMillis)
         assertEquals(0, source.saves)
@@ -170,7 +174,7 @@ class WallpaperPhotoCoordinatorTest {
         await { client.commits.isNotEmpty() }
         val base = source.state.value!!.timerBaseAtMillis
         repeat(3) { coordinator.unlocked() }
-        delay(50)
+        delay(50.milliseconds)
         assertEquals(1, client.commits.size)
         assertEquals(base, source.state.value!!.timerBaseAtMillis)
     }
@@ -181,7 +185,7 @@ class WallpaperPhotoCoordinatorTest {
         val first = client.commits.first()
         source.state.value = source.state.value!!.copy(timerEnabled = true, timerBaseAtMillis = 10_000L)
         await { source.scans == 2 }
-        delay(40)
+        delay(40.milliseconds)
         assertSame(first, client.commits.last())
         assertEquals(10_000L, source.state.value!!.timerBaseAtMillis)
     }
@@ -192,7 +196,7 @@ class WallpaperPhotoCoordinatorTest {
         val first = client.commits.single()
         source.state.value = source.state.value!!.copy(timerEnabled = true, timerBaseAtMillis = 10_000L)
         await { source.scans == 2 }
-        delay(40)
+        delay(40.milliseconds)
         val before = source.state.value
         val commits = client.commits.size
         source.failWrites = true
@@ -227,7 +231,7 @@ class WallpaperPhotoCoordinatorTest {
             source.last = source.photos.first()
             source.state.value = source.state.value!!.copy(timerEnabled = true, timerBaseAtMillis = 0L, intervalMillis = 1_000L)
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-            val waits = kotlinx.coroutines.channels.Channel<Long>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+            val waits = kotlinx.coroutines.channels.Channel<Duration>(kotlinx.coroutines.channels.Channel.UNLIMITED)
             val wake = kotlinx.coroutines.channels.Channel<Unit>()
             var now = 500L
             val coordinator = WallpaperPhotoCoordinator(source, scope, nowMillis = { now }, waitForTimer = {
@@ -238,13 +242,13 @@ class WallpaperPhotoCoordinatorTest {
             try {
                 coordinator.attach(client)
                 await { client.commits.isNotEmpty() }
-                assertEquals(500L, withTimeout(3_000) { waits.receive() })
+                assertEquals(500.milliseconds, withTimeout(3.seconds) { waits.receive() })
                 val old = source.last
                 now = 1_000L
                 wake.send(Unit)
                 await { source.state.value!!.timerBaseAtMillis == 1_000L }
                 assertNotEquals(old, source.last)
-                assertEquals(1_000L, withTimeout(3_000) { waits.receive() })
+                assertEquals(1.seconds, withTimeout(3.seconds) { waits.receive() })
             } finally {
                 coordinator.close()
                 scope.cancel()
@@ -256,17 +260,17 @@ class WallpaperPhotoCoordinatorTest {
     @Test fun hidingDuringDurableCommitDoesNotCauseAnotherRotation() = scenario { source, coordinator, client ->
         source.last = source.photos.last()
         source.state.value = source.state.value!!.copy(timerEnabled = true, timerBaseAtMillis = 0L, intervalMillis = 1_000L)
-        source.writeDelay = 100
+        source.writeDelay = 100.milliseconds
         coordinator.attach(client)
         await { source.writing }
         client.ready = false
         coordinator.visibilityChanged()
         await { source.state.value!!.timerBaseAtMillis == 10_000L }
-        delay(20)
+        delay(20.milliseconds)
         val photo = source.last
         client.ready = true
         coordinator.visibilityChanged()
-        delay(70)
+        delay(70.milliseconds)
         assertEquals(photo, source.last)
         assertEquals(1, source.saves)
     }
@@ -277,7 +281,7 @@ class WallpaperPhotoCoordinatorTest {
         source.state.value = null
         coordinator.attach(client)
         coordinator.unlocked()
-        delay(30)
+        delay(30.milliseconds)
         assertEquals(0, source.scans)
         source.state.value = loaded
         await { client.commits.isNotEmpty() }
@@ -304,7 +308,7 @@ class WallpaperPhotoCoordinatorTest {
             source.partial = true // A partial scan cannot prove that the old photo was deleted.
             source.state.value = source.state.value!!.copy(timerEnabled = true, timerBaseAtMillis = 0L)
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-            val waits = kotlinx.coroutines.channels.Channel<Long>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+            val waits = kotlinx.coroutines.channels.Channel<Duration>(kotlinx.coroutines.channels.Channel.UNLIMITED)
             val wake = kotlinx.coroutines.channels.Channel<Unit>()
             var now = 0L
             val coordinator = WallpaperPhotoCoordinator(source, scope, nowMillis = { now }, waitForTimer = {
@@ -315,10 +319,10 @@ class WallpaperPhotoCoordinatorTest {
             try {
                 coordinator.attach(client)
                 await { client.commits.isNotEmpty() }
-                assertEquals(60_000L, withTimeout(3_000) { waits.receive() })
+                assertEquals(1.minutes, withTimeout(3.seconds) { waits.receive() })
                 now = 60_000L
                 wake.send(Unit)
-                assertEquals(60_000L, withTimeout(3_000) { waits.receive() })
+                assertEquals(1.minutes, withTimeout(3.seconds) { waits.receive() })
                 assertEquals(2, source.scans)
                 assertEquals(0, source.saves)
             } finally {
@@ -347,7 +351,7 @@ class WallpaperPhotoCoordinatorTest {
                 coordinator.unlocked()
                 await { source.status == DirectoryStatus.RETRY }
                 coordinator.visibilityChanged()
-                delay(30)
+                delay(30.milliseconds)
                 assertEquals(0, scheduled)
                 assertEquals(1, client.commits.size)
             } finally {
@@ -368,7 +372,7 @@ class WallpaperPhotoCoordinatorTest {
         val state = source.state.value!!
         source.state.value = state.copy(backgroundStyle = BackgroundStyle.BLURRED_PHOTO)
         await { client.style == BackgroundStyle.BLURRED_PHOTO }
-        delay(40)
+        delay(40.milliseconds)
         assertEquals(scans, source.scans)
         assertEquals(listOf(old), client.commits)
         assertEquals(state.copy(backgroundStyle = BackgroundStyle.BLURRED_PHOTO), source.state.value)
@@ -378,10 +382,10 @@ class WallpaperPhotoCoordinatorTest {
     @Test fun styleChangeDuringUnlockDoesNotSwallowPreparedRotation() = scenario { source, coordinator, client ->
         coordinator.attach(client)
         await { client.commits.isNotEmpty() }
-        client.prepareHook = { delay(100) }
+        client.prepareHook = { delay(100.milliseconds) }
         val old = source.last
         coordinator.unlocked()
-        delay(30)
+        delay(30.milliseconds)
         source.state.value = source.state.value!!.copy(backgroundStyle = BackgroundStyle.BLURRED_PHOTO)
         await { client.commits.size == 2 }
         assertNotEquals(old, source.last)
@@ -391,13 +395,13 @@ class WallpaperPhotoCoordinatorTest {
 
     private fun scenario(
         preview: Boolean = false,
-        timeoutMillis: Long = 2000,
+        timeout: Duration = 2.seconds,
         body: suspend (FakeSource, WallpaperPhotoCoordinator, FakeClient) -> Unit,
     ) = runBlocking {
         withContext(Dispatchers.Main) {
             val source = FakeSource()
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-            val coordinator = WallpaperPhotoCoordinator(source, scope, preview, timeoutMillis, nowMillis = { 10_000L })
+            val coordinator = WallpaperPhotoCoordinator(source, scope, preview, timeout, nowMillis = { 10_000L })
             val client = FakeClient()
             try { body(source, coordinator, client) }
             finally {
@@ -408,8 +412,8 @@ class WallpaperPhotoCoordinatorTest {
         }
     }
 
-    private suspend fun await(predicate: () -> Boolean) = withTimeout(3000) {
-        while (!predicate()) delay(10)
+    private suspend fun await(predicate: () -> Boolean) = withTimeout(3.seconds) {
+        while (!predicate()) delay(10.milliseconds)
     }
 
     private class FakeClient : WallpaperPhotoClient {
@@ -444,10 +448,10 @@ class WallpaperPhotoCoordinatorTest {
             get() = state.value?.currentPhotoUri?.let(Uri::parse)
             set(value) { state.value = state.value!!.copy(currentPhotoUri = value?.toString()) }
         var status = DirectoryStatus.UNSELECTED
-        var scanDelay = 0L
+        var scanDelay = Duration.ZERO
         var partial = false
         var failWrites = false
-        var writeDelay = 0L
+        var writeDelay = Duration.ZERO
         var writing = false
         override suspend fun scan(tree: Uri): DirectoryPhotos {
             scans++

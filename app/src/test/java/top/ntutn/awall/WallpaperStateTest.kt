@@ -1,14 +1,15 @@
 package top.ntutn.awall
 
 import androidx.datastore.core.CorruptionException
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
-import top.ntutn.awall.photos.DEFAULT_INTERVAL_MILLIS
+import top.ntutn.awall.photos.DEFAULT_INTERVAL
 import top.ntutn.awall.photos.WallpaperState
 import top.ntutn.awall.photos.WallpaperStateSerializer
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 
 class WallpaperStateTest {
     @Test fun roundTripKeepsPhotoAndTimerTogether() = runBlocking {
@@ -26,12 +27,12 @@ class WallpaperStateTest {
         assertTrue(state.unlockEnabled)
         assertFalse(state.timerEnabled)
         assertNull(state.timerBaseAtMillis)
-        assertEquals(DEFAULT_INTERVAL_MILLIS, state.intervalMillis)
+        assertEquals(DEFAULT_INTERVAL, state.interval)
     }
 
     @Test fun unsupportedIntervalFallsBackWithoutDiscardingPhoto() = runBlocking {
         val state = decode("""{"intervalMillis":0,"currentPhotoUri":"content://photos/a"}""")
-        assertEquals(DEFAULT_INTERVAL_MILLIS, state.intervalMillis)
+        assertEquals(DEFAULT_INTERVAL, state.interval)
         assertEquals("content://photos/a", state.currentPhotoUri)
     }
 
@@ -53,6 +54,17 @@ class WallpaperStateTest {
         val output = ByteArrayOutputStream()
         WallpaperStateSerializer.writeTo(state, output)
         assertEquals(state, WallpaperStateSerializer.readFrom(ByteArrayInputStream(output.toByteArray())))
+    }
+
+    @Test fun typedIntervalKeepsTheExistingMillisecondJsonFormat() = runBlocking {
+        val state = decode("""{"intervalMillis":900000,"timerBaseAtMillis":123456}""")
+        assertEquals(15.minutes, state.interval)
+        val output = ByteArrayOutputStream()
+        WallpaperStateSerializer.writeTo(state, output)
+        val json = output.toString("UTF-8")
+        assertTrue(json.contains("\"intervalMillis\":900000"))
+        assertFalse(json.contains("\"interval\":"))
+        assertEquals(123456L, decode(json).timerBaseAtMillis)
     }
 
     private suspend fun decode(json: String): WallpaperState =

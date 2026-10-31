@@ -2,8 +2,11 @@ package top.ntutn.awall.photos
 
 import android.graphics.Bitmap
 import android.net.Uri
-import android.os.SystemClock
 import android.util.Log
+import java.io.FileNotFoundException
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -14,8 +17,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import java.io.FileNotFoundException
-import kotlin.time.Duration.Companion.milliseconds
 
 /** Metadata is shared by official Engines; each Engine owns its size-specific Bitmap. */
 data class WallpaperScene(
@@ -28,7 +29,7 @@ interface WallpaperPhotoClient {
     val ready: Boolean
     fun backgroundStyleChanged(style: String) {}
     suspend fun prepare(photo: Uri): Bitmap
-    suspend fun prepare(photo: Uri, deadlineMillis: Long): Bitmap = prepare(photo)
+    suspend fun prepare(photo: Uri, deadline: PreparationDeadline): Bitmap = prepare(photo)
     fun commit(scene: WallpaperScene, bitmap: Bitmap?)
     fun sceneChanged(scene: WallpaperScene)
 }
@@ -38,10 +39,10 @@ class WallpaperPhotoCoordinator(
     private val repository: WallpaperPhotoSource,
     private val scope: CoroutineScope,
     private val preview: Boolean = false,
-    private val timeoutMillis: Long = PHOTO_TIMEOUT_MS,
+    private val timeout: Duration = PHOTO_TIMEOUT,
     private val nowMillis: () -> Long = System::currentTimeMillis,
-    private val retryDelayMillis: Long = 60_000L,
-    private val waitForTimer: suspend (Long) -> Unit = { delay(it) },
+    private val retryDelay: Duration = 1.minutes,
+    private val waitForTimer: suspend (Duration) -> Unit = { delay(it) },
 ) {
     private val clients = linkedSetOf<WallpaperPhotoClient>()
     private val requests = RequestVersion()
@@ -148,8 +149,8 @@ class WallpaperPhotoCoordinator(
         if (state.directoryUri != source?.uri?.toString()) return
         if (blocked) return
         val now = nowMillis()
-        val retryRemaining = retryAtMillis?.minus(now) ?: 0L
-        if (retryRemaining > 0) {
+        val retryRemaining = retryAtMillis?.let { (it - now).milliseconds } ?: Duration.ZERO
+        if (retryRemaining > Duration.ZERO) {
             if (!preview && state.timerEnabled) schedule(retryRemaining)
             return
         }
@@ -159,7 +160,7 @@ class WallpaperPhotoCoordinator(
         }
         val needsBase = !preview && state.timerEnabled &&
             (state.timerBaseAtMillis == null || now < state.timerBaseAtMillis)
-        val due = !preview && timerRemainingMillis(state, now) == 0L
+        val due = !preview && timerRemaining(state, now) == Duration.ZERO
         val rotate = !preview && (directoryPending || (unlockPending && state.unlockEnabled) || due)
         if (!restore && !rotate && !needsBase) {
             scheduleNext(state)
@@ -186,7 +187,7 @@ class WallpaperPhotoCoordinator(
             } catch (_: Exception) {
                 if (requests.isCurrent(token)) {
                     repository.report(source?.uri, DirectoryStatus.RETRY)
-                    retryAtMillis = nowMillis() + retryDelayMillis
+                    retryAtMillis = nowMillis() + retryDelay.inWholeMilliseconds
                 }
             } finally {
                 if (requests.isCurrent(token)) {
@@ -208,8 +209,8 @@ class WallpaperPhotoCoordinator(
         try {
             var next: WallpaperScene? = null
             var changed = rotate
-            val deadlineMillis = SystemClock.elapsedRealtime() + timeoutMillis
-            withTimeout(timeoutMillis.milliseconds) {
+            val deadline = PreparationDeadline.after(timeout)
+            withTimeout(timeout) {
                 if (tree == null) {
                     next = WallpaperScene(null, null)
                     return@withTimeout
@@ -225,7 +226,7 @@ class WallpaperPhotoCoordinator(
                     var selected: Uri? = null
                     for (photo in candidates) {
                         try {
-                            prepared[primary] = primary.prepare(photo, deadlineMillis)
+                            prepared[primary] = primary.prepare(photo, deadline)
                             selected = photo
                             break
                         } catch (error: CancellationException) { throw error }
@@ -238,20 +239,20 @@ class WallpaperPhotoCoordinator(
                     }, files.uris.size, files.partial)
                     if (selected == null && current != null && !currentKnownMissing) {
                         try {
-                            val old = primary.prepare(current, deadlineMillis)
+                            val old = primary.prepare(current, deadline)
                             if (scene.photo == null) {
                                 prepared[primary] = old
                                 next = WallpaperScene(tree, current)
                                 changed = false
                             } else old.recycle()
-                            retryAtMillis = nowMillis() + retryDelayMillis
+                            retryAtMillis = nowMillis() + retryDelay.inWholeMilliseconds
                             return@withDirectory
                         } catch (error: CancellationException) { throw error }
                         catch (_: Exception) { currentKnownMissing = true }
                     }
                     if (selected == null && files.uris.isNotEmpty()) {
                         // Corrupt candidates are a failure, not a successful empty-directory rotation.
-                        retryAtMillis = nowMillis() + retryDelayMillis
+                        retryAtMillis = nowMillis() + retryDelay.inWholeMilliseconds
                         if (currentKnownMissing) next = WallpaperScene(tree, null)
                         changed = false
                         return@withDirectory
@@ -262,7 +263,7 @@ class WallpaperPhotoCoordinator(
                 val selected = next?.photo
                 if (selected != null) {
                     clients.filter { it !== primary && it.ready }.forEach { client ->
-                        try { prepared[client] = client.prepare(selected, deadlineMillis) }
+                        try { prepared[client] = client.prepare(selected, deadline) }
                         catch (error: CancellationException) { throw error }
                         catch (_: Exception) { /* The secondary Engine reloads the shared choice later. */ }
                     }
@@ -274,7 +275,7 @@ class WallpaperPhotoCoordinator(
         } catch (_: TimeoutCancellationException) {
             if (requests.isCurrent(token)) {
                 repository.report(tree, DirectoryStatus.RETRY)
-                retryAtMillis = nowMillis() + retryDelayMillis
+                retryAtMillis = nowMillis() + retryDelay.inWholeMilliseconds
                 if (currentKnownMissing) publish(token, snapshot, source, WallpaperScene(tree, null), linkedMapOf(), false)
             }
         } catch (error: CancellationException) {
@@ -286,7 +287,7 @@ class WallpaperPhotoCoordinator(
         } catch (_: Exception) {
             if (requests.isCurrent(token)) {
                 repository.report(tree, DirectoryStatus.RETRY)
-                retryAtMillis = nowMillis() + retryDelayMillis
+                retryAtMillis = nowMillis() + retryDelay.inWholeMilliseconds
             }
         } finally {
             prepared.values.forEach(Bitmap::recycle)
@@ -349,16 +350,16 @@ class WallpaperPhotoCoordinator(
         if (closed || preview || blocked || clients.none { it.ready } || task != null) return
         val retry = retryAtMillis
         if (retry != null) {
-            if (state.timerEnabled) schedule((retry - nowMillis()).coerceAtLeast(1L))
+            if (state.timerEnabled) schedule((retry - nowMillis()).milliseconds)
             return
         }
-        timerRemainingMillis(state, nowMillis())?.let(::schedule)
+        timerRemaining(state, nowMillis())?.let(::schedule)
     }
 
-    private fun schedule(millis: Long) {
+    private fun schedule(remaining: Duration) {
         if (timer?.isActive == true) return
         timer = scope.launch {
-            waitForTimer(millis.coerceAtLeast(1L))
+            waitForTimer(remaining.coerceAtLeast(1.milliseconds))
             timer = null
             reconcile()
         }
@@ -373,13 +374,13 @@ class WallpaperPhotoCoordinator(
 }
 
 /** null disables scheduling; this calculation is also used after process recreation. */
-internal fun timerRemainingMillis(state: WallpaperState, nowMillis: Long): Long? {
+internal fun timerRemaining(state: WallpaperState, nowMillis: Long): Duration? {
     if (!state.timerEnabled) return null
-    val base = state.timerBaseAtMillis ?: return state.intervalMillis
+    val base = state.timerBaseAtMillis ?: return state.interval
     val elapsed = if (nowMillis < base) 0L else nowMillis - base
-    return (state.intervalMillis - elapsed).coerceAtLeast(0L)
+    return (state.interval - elapsed.milliseconds).coerceAtLeast(Duration.ZERO)
 }
 
 private fun sameSettings(first: WallpaperState, second: WallpaperState): Boolean =
     first.unlockEnabled == second.unlockEnabled && first.timerEnabled == second.timerEnabled &&
-        first.intervalMillis == second.intervalMillis
+        first.interval == second.interval

@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onUnlockEnabledChanged = { enabled -> saveSettings { repository.setUnlockEnabled(enabled) } },
                     onTimerEnabledChanged = { enabled -> saveSettings { repository.setTimerEnabled(enabled) } },
-                    onIntervalChanged = { interval -> saveSettings { repository.setIntervalMillis(interval) } },
+                    onIntervalChanged = { interval -> saveSettings { repository.setInterval(interval) } },
                     onRetryLoading = {
                         if (!savingSettings && !selecting) {
                             savingSettings = true

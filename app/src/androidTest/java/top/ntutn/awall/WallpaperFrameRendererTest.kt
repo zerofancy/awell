@@ -5,6 +5,9 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -70,7 +73,7 @@ class WallpaperFrameRendererTest {
         renderer.submit(WallpaperScene(null, Uri.parse("content://photos/old")), old, 100, 200)
         renderer.submit(WallpaperScene(null, Uri.parse("content://photos/new")), next, 100, 200)
         awaitFrame(1)
-        delay(30)
+        delay(30.milliseconds)
         assertTrue(old.isRecycled)
         val output = Bitmap.createBitmap(100, 200, Bitmap.Config.ARGB_8888)
         try {
@@ -89,7 +92,7 @@ class WallpaperFrameRendererTest {
     @Test fun deadlineFallsBackToBlackWhileKeepingTheSharpForeground() = renderTest { renderer, awaitFrame ->
         renderer.setStyle(BackgroundStyle.BLURRED_PHOTO)
         val image = Bitmap.createBitmap(100, 50, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
-        renderer.submit(WallpaperScene(null, Uri.parse("content://photos/a")), image, 100, 200, deadlineMillis = 0)
+        renderer.submit(WallpaperScene(null, Uri.parse("content://photos/a")), image, 100, 200, deadline = PreparationDeadline.after(Duration.ZERO))
         awaitFrame(1)
         val output = Bitmap.createBitmap(100, 200, Bitmap.Config.ARGB_8888)
         try {
@@ -145,7 +148,7 @@ class WallpaperFrameRendererTest {
             var frames = 0
             val renderer = WallpaperFrameRenderer(scope, { true }, { frames++ })
             try {
-                body(renderer) { count -> withTimeout(3000) { while (frames < count) delay(10) } }
+                body(renderer) { count -> withTimeout(3.seconds) { while (frames < count) delay(10.milliseconds) } }
             } finally { renderer.close(); scope.cancel() }
         }
     }

@@ -5,11 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
-import android.os.SystemClock
-import java.util.WeakHashMap
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
 import androidx.core.content.ContextCompat
+import java.util.WeakHashMap
+import kotlin.math.min
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,17 +18,16 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
-import top.ntutn.awall.photos.WallpaperFrameRenderer
 import top.ntutn.awall.photos.BACKGROUND_RESERVE_BYTES
-import top.ntutn.awall.photos.PHOTO_TIMEOUT_MS
+import top.ntutn.awall.photos.PHOTO_TIMEOUT
 import top.ntutn.awall.photos.PhotoDirectoryRepository
 import top.ntutn.awall.photos.PhotoLoader
+import top.ntutn.awall.photos.PreparationDeadline
 import top.ntutn.awall.photos.RequestVersion
+import top.ntutn.awall.photos.WallpaperFrameRenderer
 import top.ntutn.awall.photos.WallpaperPhotoClient
 import top.ntutn.awall.photos.WallpaperPhotoCoordinator
 import top.ntutn.awall.photos.WallpaperScene
-import kotlin.math.min
-import kotlin.time.Duration.Companion.milliseconds
 
 class AWallpaperService : WallpaperService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -68,7 +67,7 @@ class AWallpaperService : WallpaperService() {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         private val loader = PhotoLoader(contentResolver)
         private val frames = WallpaperFrameRenderer(scope, { ready }, ::drawFrame)
-        private val preparationDeadlines = WeakHashMap<Bitmap, Long>()
+        private val preparationDeadlines = WeakHashMap<Bitmap, PreparationDeadline>()
         private val loads = RequestVersion()
         private var load: Job? = null
         private var owner: WallpaperPhotoCoordinator? = null
@@ -132,13 +131,13 @@ class AWallpaperService : WallpaperService() {
         }
 
         override suspend fun prepare(photo: android.net.Uri): Bitmap =
-            prepare(photo, SystemClock.elapsedRealtime() + PHOTO_TIMEOUT_MS)
+            prepare(photo, PreparationDeadline.after(PHOTO_TIMEOUT))
 
-        override suspend fun prepare(photo: android.net.Uri, deadlineMillis: Long): Bitmap {
+        override suspend fun prepare(photo: android.net.Uri, deadline: PreparationDeadline): Bitmap {
             // Even with multiple Engines, total live pixel buffers stay below the process allowance.
             val budget = min(32L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 8) / MAX_ENGINE_ALLOWANCE
             return loader.load(photo, width.coerceAtLeast(1), height.coerceAtLeast(1),
-                (budget - BACKGROUND_RESERVE_BYTES).coerceAtLeast(1), retainedBuffers = 4).also { preparationDeadlines[it] = deadlineMillis }
+                (budget - BACKGROUND_RESERVE_BYTES).coerceAtLeast(1), retainedBuffers = 4).also { preparationDeadlines[it] = deadline }
         }
 
         override fun sceneChanged(scene: WallpaperScene) {
@@ -167,7 +166,7 @@ class AWallpaperService : WallpaperService() {
             load = scope.launch {
                 var candidate: Bitmap? = null
                 try {
-                    candidate = withTimeout(PHOTO_TIMEOUT_MS.milliseconds) {
+                    candidate = withTimeout(PHOTO_TIMEOUT) {
                         val tree = scene.tree ?: return@withTimeout null
                         repository.withDirectory(tree) { prepare(photo) }
                     }
@@ -187,8 +186,8 @@ class AWallpaperService : WallpaperService() {
             }
         }
 
-        private fun deadline(image: Bitmap?): Long = preparationDeadlines.remove(image)
-            ?: (SystemClock.elapsedRealtime() + PHOTO_TIMEOUT_MS)
+        private fun deadline(image: Bitmap?): PreparationDeadline = preparationDeadlines.remove(image)
+            ?: PreparationDeadline.after(PHOTO_TIMEOUT)
 
         private fun cancelLoad() {
             loads.next()

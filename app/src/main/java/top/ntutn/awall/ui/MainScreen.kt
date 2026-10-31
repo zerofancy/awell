@@ -10,11 +10,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.material3.RadioButton
-import top.ntutn.awall.photos.BackgroundStyle
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -22,6 +20,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -38,8 +37,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 import top.ntutn.awall.R
-import top.ntutn.awall.photos.DEFAULT_INTERVAL_MILLIS
+import top.ntutn.awall.photos.BackgroundStyle
+import top.ntutn.awall.photos.DEFAULT_INTERVAL
 import top.ntutn.awall.photos.DirectoryStatus
 import top.ntutn.awall.photos.DirectoryUiState
 import top.ntutn.awall.photos.WallpaperState
@@ -59,7 +62,7 @@ fun MainScreen(
     onBackgroundStyleChanged: (String) -> Unit = {},
     onUnlockEnabledChanged: (Boolean) -> Unit = {},
     onTimerEnabledChanged: (Boolean) -> Unit = {},
-    onIntervalChanged: (Long) -> Unit = {},
+    onIntervalChanged: (Duration) -> Unit = {},
     onRetryLoading: () -> Unit = {},
 ) {
     val canEditSettings = wallpaperState != null && !storageError && !savingSettings && !selecting
@@ -118,7 +121,7 @@ fun MainScreen(
                 onCheckedChange = onTimerEnabledChanged,
             )
             IntervalSetting(
-                intervalMillis = wallpaperState?.intervalMillis ?: DEFAULT_INTERVAL_MILLIS,
+                interval = wallpaperState?.interval ?: DEFAULT_INTERVAL,
                 enabled = canEditSettings && wallpaperState.timerEnabled,
                 onIntervalChanged = onIntervalChanged,
             )
@@ -174,10 +177,10 @@ private fun RotationSwitch(
 }
 
 @Composable
-private fun IntervalSetting(intervalMillis: Long, enabled: Boolean, onIntervalChanged: (Long) -> Unit) {
+private fun IntervalSetting(interval: Duration, enabled: Boolean, onIntervalChanged: (Duration) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    val selected = intervalOptions.firstOrNull { it.first == intervalMillis }
-        ?: (DEFAULT_INTERVAL_MILLIS to R.string.interval_1_hour)
+    val selected = intervalOptions.firstOrNull { it.first == interval }
+        ?: (DEFAULT_INTERVAL to R.string.interval_1_hour)
     Box {
         OutlinedButton(
             modifier = Modifier.testTag("interval_setting"),
@@ -187,12 +190,12 @@ private fun IntervalSetting(intervalMillis: Long, enabled: Boolean, onIntervalCh
             Text(stringResource(R.string.rotation_interval, stringResource(selected.second)))
         }
         DropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
-            intervalOptions.forEach { (millis, label) ->
+            intervalOptions.forEach { (duration, label) ->
                 DropdownMenuItem(
                     text = { Text(stringResource(label)) },
                     onClick = {
                         expanded = false
-                        onIntervalChanged(millis)
+                        onIntervalChanged(duration)
                     },
                 )
             }
@@ -201,11 +204,11 @@ private fun IntervalSetting(intervalMillis: Long, enabled: Boolean, onIntervalCh
 }
 
 private val intervalOptions = listOf(
-    15 * 60_000L to R.string.interval_15_minutes,
-    30 * 60_000L to R.string.interval_30_minutes,
-    DEFAULT_INTERVAL_MILLIS to R.string.interval_1_hour,
-    6 * DEFAULT_INTERVAL_MILLIS to R.string.interval_6_hours,
-    24 * DEFAULT_INTERVAL_MILLIS to R.string.interval_24_hours,
+    15.minutes to R.string.interval_15_minutes,
+    30.minutes to R.string.interval_30_minutes,
+    DEFAULT_INTERVAL to R.string.interval_1_hour,
+    6.hours to R.string.interval_6_hours,
+    24.hours to R.string.interval_24_hours,
 )
 
 @Preview(showBackground = true)

@@ -5,8 +5,9 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
-import android.util.Log
 import android.os.SystemClock
+import android.util.Log
+import kotlin.math.min
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -15,7 +16,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.math.min
 
 /** Owner-thread state. A pending foreground is owned here until committed or cancelled. */
 class WallpaperFrameRenderer(
@@ -53,7 +53,7 @@ class WallpaperFrameRenderer(
     }
 
     fun submit(value: WallpaperScene, candidate: Bitmap?, width: Int, height: Int,
-        deadlineMillis: Long = SystemClock.elapsedRealtime() + PHOTO_TIMEOUT_MS) {
+        deadline: PreparationDeadline = PreparationDeadline.after(PHOTO_TIMEOUT)) {
         cancel()
         val token = version
         val startedAt = SystemClock.elapsedRealtime()
@@ -74,7 +74,7 @@ class WallpaperFrameRenderer(
                         try {
                             snapshot = BlurredBackground.snapshot(candidate, width, height)
                             val small = snapshot
-                            val completed = withTimeoutOrNull((deadlineMillis - SystemClock.elapsedRealtime()).coerceAtLeast(0)) {
+                            val completed = withTimeoutOrNull(deadline.remaining()) {
                                 withContext(Dispatchers.Default) { BlurredBackground.blur(small) }
                                 true
                             } == true
