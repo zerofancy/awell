@@ -20,7 +20,7 @@
   <h1>Gradle 钥匙圈签名</h1>
   <p>AWell 使用 <a href="https://github.com/konecny-ondrej/gradle-keyring">Gradle Keyring 0.2</a> 读取系统钥匙圈中的 keystore 密码和私钥密码，接法参考
     <a href="https://github.com/zerofancy/so-novel-reader/commit/1af53e7">so-novel-reader 的接入</a>。</p>
-  <p><strong>Release 默认启用签名。</strong>配置缺失会明确失败，不会自动回退到未签名包。Debug 仍使用 Android 默认调试签名。</p>
+  <p><strong>Release 默认启用签名。</strong>仅在 Release 打包任务需要签名信息时读取配置和密码；配置缺失会明确失败，不会自动回退到未签名包。克隆后的 IDE 同步和 Debug 构建不需要 Release 签名配置，Debug 仍使用 Android 默认调试签名。</p>
 
   <h2>1. 配置现有 keystore</h2>
   <p>使用已有 Release keystore，保存在仓库外并备份。不要为已有发布版本随意更换签名身份。本接入不会生成或替换 keystore。</p>
@@ -49,10 +49,11 @@ keyringKeyAlias=your-key-alias</pre>
 # 构建签名 AAB
 ./gradlew :app:bundleRelease</pre>
   <p>APK 位于 <code>app/build/outputs/apk/release/app-release.apk</code>，AAB 位于 <code>app/build/outputs/bundle/release/app-release.aab</code>。</p>
-  <div class="note">AGP 在配置阶段保存签名密码，因此项目默认关闭 Gradle 配置缓存。显式请求 <code>--configuration-cache</code> 且启用签名时，会在读取密码前失败。用户级或 IDE 配置如果开启了缓存，应关闭或使用 <code>--no-configuration-cache</code>。</div>
-  <p>默认启用会在 Debug 构建和 IDE 同步的配置阶段也检查签名配置。尚未准备凭据的机器可以临时关闭签名：</p>
-  <pre>./gradlew -PkeyringSigning=false :app:assembleDebug
-./gradlew --no-configuration-cache -PkeyringSigning=false :listSecretConfigs</pre>
+  <div class="note">Release 签名任务的输入包含密码，因此项目默认关闭 Gradle 配置缓存。显式请求 <code>--configuration-cache</code> 且任务需要 Release 签名时，会在读取密码前失败。用户级或 IDE 配置如果开启了缓存，应关闭或使用 <code>--no-configuration-cache</code>。</div>
+  <p>IDE 同步、Debug 构建和密码初始化任务无需关闭签名即可运行。只有明确需要生成未签名 Release 包时，才临时关闭签名：</p>
+  <pre>./gradlew :app:assembleDebug
+./gradlew -PkeyringSigning=false :app:assembleRelease
+./gradlew --no-configuration-cache :listSecretConfigs</pre>
   <p><code>keyringSigning</code> 只接受 <code>true</code> 或 <code>false</code>；也可在 <code>local.properties</code> 中设置。显式关闭后构建 Release 会得到未签名包，<code>verifyReleaseSigning</code> 会失败。</p>
 
   <h2>CI 与凭据映射</h2>
