@@ -25,6 +25,8 @@ val keyringSigningEnabled = when (val value = signingProperty("keyringSigning") 
     else -> throw GradleException("keyringSigning must be true or false, received '$value'.")
 }
 
+val updateTestServer = providers.gradleProperty("updateTestServer").map(String::toBooleanStrict).orElse(false)
+
 fun requiredSigningProperty(name: String): String = signingProperty(name)
     ?.takeIf { it.isNotBlank() }
     ?: throw GradleException(
@@ -46,10 +48,10 @@ android {
 
     defaultConfig {
         applicationId = "top.ntutn.awell"
-        minSdk = 23
+        minSdk = 24
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -57,9 +59,17 @@ android {
     buildTypes {
         debug {
             // Opt-in isolated install for devices with an existing differently signed APK.
-            applicationIdSuffix = providers.gradleProperty("debugApplicationIdSuffix").orNull
+            val debugSuffix = providers.gradleProperty("debugApplicationIdSuffix").orNull
+            applicationIdSuffix = if (updateTestServer.get()) {
+                debugSuffix?.takeIf { it.isNotBlank() } ?: ".updatetest"
+            } else {
+                debugSuffix
+            }
+            val updateBaseUrl = if (updateTestServer.get()) "http://127.0.0.1:18763" else ""
+            buildConfigField("String", "UPDATE_BASE_URL", "\"$updateBaseUrl\"")
         }
         release {
+            buildConfigField("String", "UPDATE_BASE_URL", "\"https://zp.ntutn.top\"")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
@@ -139,6 +149,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(libs.kmp.updater.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.activity.compose)

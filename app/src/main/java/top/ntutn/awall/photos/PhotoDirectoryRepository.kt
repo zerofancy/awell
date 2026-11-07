@@ -3,7 +3,6 @@ package top.ntutn.awall.photos
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.provider.DocumentsContract
 import androidx.datastore.core.DataStore
 import java.io.FileNotFoundException
@@ -203,8 +202,8 @@ class PhotoDirectoryRepository internal constructor(
                         while (cursor.moveToNext()) {
                             signal.throwIfCanceled()
                             add(DocumentEntry(cursor.getString(0), cursor.getString(1).orEmpty(),
-                                cursor.getString(2), Build.VERSION.SDK_INT >= 24 &&
-                                    cursor.getInt(3) and DocumentsContract.Document.FLAG_VIRTUAL_DOCUMENT != 0))
+                                cursor.getString(2),
+                                cursor.getInt(3) and DocumentsContract.Document.FLAG_VIRTUAL_DOCUMENT != 0))
                         }
                     }
                 } ?: throw IOException("Directory listing unavailable")

@@ -23,7 +23,11 @@ DataStore 保存设置、最近照片和单个计时基线，并自动迁移旧�
 
 [模糊拉伸背景 Spec](docs/specs/blurred-photo-background.html)
 
+正式版支持 Android 7.0 及以上。在主界面底部点击“检查更新”，发现新版后可用浏览器下载 APK。[应用更新 Spec](docs/specs/app-update.html)
+
 ## 验证
+
+首次构建前，在 [KMP Updater](https://github.com/zerofancy/kmp-updater) 仓库的 `d4f28d0` 提交运行 `./gradlew publishToMavenLocal`。
 
 Release 默认通过系统钥匙圈签名，首次配置见 [Gradle 钥匙圈签名说明](docs/keyring-signing.html)。配置完成后直接运行 `./gradlew :app:assembleRelease`。
 

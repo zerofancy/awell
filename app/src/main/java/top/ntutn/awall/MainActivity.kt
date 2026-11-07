@@ -11,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,10 +24,14 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import top.ntutn.awall.photos.PhotoDirectoryRepository
+import top.ntutn.awall.ui.AppUpdateSection
 import top.ntutn.awall.ui.MainScreen
+import top.ntutn.awall.update.AppUpdateViewModel
 import top.ntutn.awall.ui.theme.AWallTheme
 
 class MainActivity : ComponentActivity() {
+    private val updates by viewModels<AppUpdateViewModel>()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -36,6 +41,7 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             AWallTheme {
+                val lifecycleState by lifecycle.currentStateFlow.collectAsState()
                 val state by repository.ui.collectAsState()
                 val wallpaperState by repository.state.collectAsState()
                 val storageError by repository.storageError.collectAsState()
@@ -106,6 +112,9 @@ class MainActivity : ComponentActivity() {
                         catch (_: ActivityNotFoundException) {
                             Toast.makeText(this, R.string.directory_picker_unavailable, Toast.LENGTH_LONG).show()
                         }
+                    },
+                    appUpdateContent = {
+                        AppUpdateSection(updates, lifecycleState.isAtLeast(Lifecycle.State.STARTED))
                     },
                 )
             }

@@ -64,6 +64,7 @@ fun MainScreen(
     onTimerEnabledChanged: (Boolean) -> Unit = {},
     onIntervalChanged: (Duration) -> Unit = {},
     onRetryLoading: () -> Unit = {},
+    appUpdateContent: @Composable () -> Unit = {},
 ) {
     val canEditSettings = wallpaperState != null && !storageError && !savingSettings && !selecting
     Scaffold(
@@ -128,6 +129,7 @@ fun MainScreen(
             Text(stringResource(R.string.automatic_rotation_hint), style = MaterialTheme.typography.bodySmall)
             Text(stringResource(R.string.photo_wallpaper_hint), style = MaterialTheme.typography.bodySmall)
             Button(onClick = onOpenWallpaperPreview) { Text(stringResource(R.string.wallpaper_preview_button)) }
+            appUpdateContent()
         }
     }
 }

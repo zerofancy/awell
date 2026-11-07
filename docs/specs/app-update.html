@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AWell · 应用更新 Spec</title>
+<style>
+:root {
+  color-scheme: light;
+  --ink: #20312e;
+  --muted: #53635e;
+  --accent: #176654;
+  --line: #dce5df;
+  --soft: #edf5ef;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #f3f5f0; color: var(--ink); font: 16px/1.75 system-ui, sans-serif; }
+main { max-width: 1000px; margin: 36px auto; padding: clamp(22px, 5vw, 56px); background: white; border: 1px solid var(--line); border-radius: 18px; }
+header { padding-bottom: 20px; border-bottom: 2px solid var(--accent); }
+h1 { margin: 4px 0 10px; font-size: clamp(32px, 5vw, 44px); line-height: 1.3; }
+h2 { margin: 36px 0 12px; font-size: 23px; }
+p { margin: 10px 0; }
+.tag { color: var(--accent); font-size: 13px; font-weight: 700; letter-spacing: .08em; }
+.meta, footer { color: var(--muted); font-size: 14px; }
+.lead { font-size: 19px; }
+nav { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 22px 0; font-size: 14px; }
+a { color: var(--accent); text-underline-offset: 3px; }
+.callout { padding: 12px 18px; border-left: 4px solid var(--accent); background: var(--soft); }
+table { width: 100%; margin: 16px 0; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 10px 12px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { background: var(--soft); }
+td:first-child { width: 25%; font-weight: 600; }
+code { padding: 2px 4px; border-radius: 4px; background: #f0f4f1; font-size: .87em; overflow-wrap: anywhere; }
+li { margin: 7px 0; }
+footer { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 16px; }
+@media (max-width: 720px) {
+  main { margin: 0; border: 0; border-radius: 0; }
+  th, td { padding: 8px; }
+}
+@media print {
+  body { background: white; }
+  main { margin: 0; padding: 0; border: 0; }
+  nav { display: none; }
+  h2 { break-after: avoid; }
+  tr { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <p class="tag">AWELL / FEATURE SPEC</p>
+  <h1>应用更新</h1>
+  <p class="lead">AWell 通过 KMP Updater 查询新版 APK。发现新版本时展示版本和发布说明，由用户选择是否打开浏览器下载。</p>
+  <p class="meta">2026-11-07 · 版本 0.2 · 手动检查</p>
+</header>
+<nav aria-label="文档目录">
+  <a href="#decisions">设计决定</a><a href="#experience">用户流程</a><a href="#integration">接入配置</a>
+  <a href="#publishing">服务登记与发版</a><a href="#acceptance">验收</a>
+</nav>
+
+<section aria-labelledby="decisions">
+<h2 id="decisions">1. 设计决定</h2>
+<ul>
+  <li><strong>最低系统。</strong>当前 AWell 支持 Android 6.0（API 23），上游 SDK 最低支持 Android 7.0（API 24）。将 AWell 的 <code>minSdk</code> 提到 24。API 23 设备可继续使用已安装旧版，但无法安装后续版本，也收不到新增的应用内更新提示。</li>
+  <li><strong>检查时机。</strong>用户点击「检查更新」时发起查询。应用启动、进入前台、壁纸服务启动、解锁和定时换图均不触发查询。</li>
+  <li><strong>服务标识。</strong>软件内部名使用 <code>awell</code>，显示名使用 <code>AWell</code>。</li>
+</ul>
+</section>
+
+<section aria-labelledby="experience">
+<h2 id="experience">2. 用户流程</h2>
+<p>主界面底部新增「应用版本」区，显示当前版本和「检查更新」按钮。检查期间显示进度并禁用重复点击。查询独立于照片目录和壁纸设置状态。</p>
+<table>
+<thead><tr><th scope="col">查询结果</th><th scope="col">用户看到的反馈</th></tr></thead>
+<tbody>
+  <tr><td>有新版</td><td>前台显示 SDK 中文弹窗，列出当前版本、新版和可用的发布说明。选择「前往下载」时由系统浏览器打开服务返回的 HTTPS 链接。浏览器无法打开时保留弹窗，允许重试或复制链接。</td></tr>
+  <tr><td>已是最新版</td><td>服务端版本相同时显示「当前已是最新版本」，服务端版本更低时显示「暂无可用更新」。</td></tr>
+  <tr><td>没有匹配包</td><td>手动检查提示「暂无适用于当前安装版本的更新包」。</td></tr>
+  <tr><td>查询失败</td><td>手动检查提示失败，用户可再次检查。软件未登记、超时、网络断开和响应异常归为失败。</td></tr>
+  <tr><td>架构不支持</td><td>显示「此设备暂不支持检查更新」，跳过网络请求。</td></tr>
+</tbody>
+</table>
+<p>界面退到后台时暂缓弹窗，回到前台再展示尚待处理的结果。用户关闭弹窗后，可通过手动检查重新打开。下载与安装由浏览器和 Android 安装器接手。</p>
+</section>
+
+<section aria-labelledby="integration">
+<h2 id="integration">3. 接入配置</h2>
+<table>
+<thead><tr><th scope="col">项目</th><th scope="col">配置与约束</th></tr></thead>
+<tbody>
+  <tr><td>SDK</td><td>使用 <code>io.github.zerofancy:kmp-updater-compose:0.1.0-SNAPSHOT</code>，由它传递引入核心。以本机源码提交 <code>d4f28d0</code> 为构建基线。新环境先在该 SDK 仓库运行 <code>./gradlew publishToMavenLocal</code>，AWell 将 Maven Local 限定为该 SDK 的模块。</td></tr>
+  <tr><td>更新服务</td><td><code>https://zp.ntutn.top</code>，公开接口 <code>GET /api/v1/updates</code>。客户端只发送软件内部名、系统、架构和包类型。后台凭据仅用于服务管理。</td></tr>
+  <tr><td>版本与目标</td><td>从当前构建的 <code>BuildConfig</code> 读取版本，<code>versionCode</code> 转为 <code>Long</code> 比较，<code>versionName</code> 用于展示。目标由 SDK 检测，支持 <code>Android / ARM64</code> 和 <code>Android / X86_64</code>，包类型固定为 <code>apk</code>。</td></tr>
+  <tr><td>界面与生命周期</td><td>由主界面的 ViewModel 持有 SDK 的 <code>UpdateController</code> 和 checker，跨旋转保留在途请求与提示。ViewModel 清理时释放 controller 并关闭 checker。<code>UpdateHost</code> 只在前台挂载。旋转和后台恢复均不重新发起查询。使用 SDK 自带的查询超时与限流处理。</td></tr>
+  <tr><td>构建兼容</td><td>检查合并 Manifest 的 <code>INTERNET</code> 权限及 Compose 依赖解析。可覆盖安装的正式签名 Release 才启用线上检查。Debug 默认仅显示版本。用 <code>-PupdateTestServer=true</code> 构建时，默认追加包名后缀 <code>.updatetest</code>，并查询设备的 <code>http://127.0.0.1:18763</code>。用 <code>adb reverse tcp:18763 tcp:18763</code> 连接电脑上的测试服务。明文查询只在 Debug 的回环地址放行，下载链接仍须使用 HTTPS。</td></tr>
+</tbody>
+</table>
+</section>
+
+<section aria-labelledby="publishing">
+<h2 id="publishing">4. 服务登记与发版</h2>
+<ol>
+  <li>线上软件为 <code>awell</code>（ID 8）。AWell 1.0.1（2）已发布，分发 ID 为 8，安装包 ID 为 11。Android ARM64 和 X86_64 查询均返回同一份签名 APK。</li>
+  <li>正式发版时使用 <code>top.ntutn.awell</code> 和已分发版本兼容的签名证书。核对现有发布记录及 APK 的版本号后，为新版分配严格递增的 <code>versionCode</code>。本次从带有更新入口的 <code>1.0 (1)</code> 签名包升级到 <code>1.0.1 (2)</code>。</li>
+  <li>在现有服务中发布 <code>apk</code> 分发，按 APK 实际支持的 ABI 配置 Android 目标。若同一 APK 已验证支持 ARM64 和 X86_64，可给同一个包配置两个目标。填写面向用户的纯文本发布说明，供 SDK 弹窗展示。</li>
+  <li>逐个查询实际发布的目标，核对版本、下载链接、APK 的包名和签名。首次发版前，可在测试环境用两个同签名版本验证从查询到覆盖安装的路径。</li>
+</ol>
+<p class="callout">首个含 SDK 的版本仍需通过原分发方式送达。安装该版本后，AWell 才能主动发现后续新版。</p>
+</section>
+
+<section aria-labelledby="acceptance">
+<h2 id="acceptance">5. 验收</h2>
+<p>2026-11-07 在 NX888J（Android 16，ARM64）验证 <code>1.0 (1)</code> 手动检查、Fennec 下载、Android 安装器覆盖安装及升级后再次检查。下载文件 SHA-256 与签名包一致，首次安装时间与测试设置均保留，<code>1.0.1 (2)</code> 显示「当前已是最新版本」。X86_64 已验证线上查询。</p>
+<ol>
+  <li>按约定从 SDK 源码发布 Maven Local 后，AWell 能构建 Debug 和正式签名 Release。确认合并权限、最低 API 与包名符合设计。</li>
+  <li>在受支持 Android 目标上验证高版本、相同或较低版本、无匹配包、离线或超时。确认不支持的架构不发送查询。</li>
+  <li>验证启动和恢复前台时无更新查询，手动检查有结果反馈。旋转、退到后台再恢复和连续点击时，检查触发和弹窗数量符合约定。</li>
+  <li>在同签名测试包上验证浏览器打开链接、下载及覆盖安装。覆盖安装后核对版本、已选照片目录和壁纸设置。</li>
+  <li>服务登记后检查公开 API 返回预期状态。若已有正式分发，核对每个目标返回的 APK 版本和下载链接。</li>
+</ol>
+</section>
+<footer>参考：<a href="https://github.com/zerofancy/kmp-updater">KMP Updater</a> · <a href="https://github.com/zerofancy/updater-server/blob/main/docs/update-api-spec.html">更新 API 规范</a></footer>
+</main>
+</body>
+</html>
