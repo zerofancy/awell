@@ -15,8 +15,10 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         exclusiveContent {
-            forRepository { mavenLocal() }
-            filter { includeModuleByRegex("io.github.zerofancy", "kmp-updater(-.*)?") }
+            forRepository {
+                maven { url = uri("https://jitpack.io") }
+            }
+            filter { includeGroup("com.github.zerofancy.kmp-updater") }
         }
         google()
         mavenCentral()

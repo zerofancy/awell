@@ -9,6 +9,7 @@ import top.ntutn.updater.UpdateVersion
 import top.ntutn.updater.UpdaterConfig
 import top.ntutn.updater.compose.UpdateController
 import top.ntutn.updater.createAndroidBrowserOpener
+import top.ntutn.updater.createAndroidUpdateDownloader
 import top.ntutn.updater.createUpdateChecker
 import top.ntutn.updater.detectUpdateTarget
 
@@ -27,12 +28,14 @@ internal class AppUpdateViewModel(application: Application) : AndroidViewModel(a
             )
         )
     }
-    val controller = checker?.let {
-        UpdateController(it, createAndroidBrowserOpener(application), viewModelScope)
+    private val downloader = checker?.let { createAndroidUpdateDownloader(application) }
+    val controller = downloader?.let {
+        UpdateController(checkNotNull(checker), createAndroidBrowserOpener(application), it, viewModelScope)
     }
 
     override fun onCleared() {
         controller?.dispose()
+        downloader?.close()
         checker?.close()
         super.onCleared()
     }

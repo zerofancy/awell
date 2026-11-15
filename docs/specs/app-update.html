@@ -51,8 +51,8 @@ footer { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 16px;
 <header>
   <p class="tag">AWELL / FEATURE SPEC</p>
   <h1>应用更新</h1>
-  <p class="lead">AWell 通过 KMP Updater 查询新版 APK。发现新版本时展示版本和发布说明，由用户选择是否打开浏览器下载。</p>
-  <p class="meta">2026-11-07 · 版本 0.2 · 手动检查</p>
+  <p class="lead">AWell 通过 KMP Updater 查询新版 APK。发现新版本时展示版本和发布说明，由用户选择应用内下载或浏览器下载。应用内下载完成后可点击「安装更新」，交由 Android 系统确认安装。</p>
+  <p class="meta">2026-11-15 · 版本 0.3 · 手动检查、应用内下载与安装交接</p>
 </header>
 <nav aria-label="文档目录">
   <a href="#decisions">设计决定</a><a href="#experience">用户流程</a><a href="#integration">接入配置</a>
@@ -74,14 +74,14 @@ footer { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 16px;
 <table>
 <thead><tr><th scope="col">查询结果</th><th scope="col">用户看到的反馈</th></tr></thead>
 <tbody>
-  <tr><td>有新版</td><td>前台显示 SDK 中文弹窗，列出当前版本、新版和可用的发布说明。选择「前往下载」时由系统浏览器打开服务返回的 HTTPS 链接。浏览器无法打开时保留弹窗，允许重试或复制链接。</td></tr>
+  <tr><td>有新版</td><td>前台显示 SDK 中文弹窗，列出当前版本、新版和可用的发布说明。选择「下载更新」时在应用内下载，显示进度，支持取消、失败后重新下载及浏览器回退。文件保存在应用私有更新目录，不申请存储权限；下载完成后点击「安装更新」，通过 FileProvider 以只读 content URI 交给系统安装器。Android 8.0 及以上未授权时打开当前应用的「允许来自此来源的应用」设置，返回后重新检查授权和文件，再尝试安装；拒绝授权保留下载结果并提示可重试。浏览器无法打开时保留弹窗，允许重试或复制链接。</td></tr>
   <tr><td>已是最新版</td><td>服务端版本相同时显示「当前已是最新版本」，服务端版本更低时显示「暂无可用更新」。</td></tr>
   <tr><td>没有匹配包</td><td>手动检查提示「暂无适用于当前安装版本的更新包」。</td></tr>
   <tr><td>查询失败</td><td>手动检查提示失败，用户可再次检查。软件未登记、超时、网络断开和响应异常归为失败。</td></tr>
   <tr><td>架构不支持</td><td>显示「此设备暂不支持检查更新」，跳过网络请求。</td></tr>
 </tbody>
 </table>
-<p>界面退到后台时暂缓弹窗，回到前台再展示尚待处理的结果。用户关闭弹窗后，可通过手动检查重新打开。下载与安装由浏览器和 Android 安装器接手。</p>
+<p>界面退到后台时暂缓弹窗，回到前台再展示尚待处理的结果。用户关闭弹窗后，可通过手动检查重新打开。应用内下载由 SDK 负责，不自动安装，不保证后台保活或跨进程恢复。浏览器下载与后续安装仍由浏览器和 Android 安装器接手。</p>
 </section>
 
 <section aria-labelledby="integration">
@@ -89,10 +89,11 @@ footer { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 16px;
 <table>
 <thead><tr><th scope="col">项目</th><th scope="col">配置与约束</th></tr></thead>
 <tbody>
-  <tr><td>SDK</td><td>使用 <code>io.github.zerofancy:kmp-updater-compose:0.1.0-SNAPSHOT</code>，由它传递引入核心。以本机源码提交 <code>d4f28d0</code> 为构建基线。新环境先在该 SDK 仓库运行 <code>./gradlew publishToMavenLocal</code>，AWell 将 Maven Local 限定为该 SDK 的模块。</td></tr>
+  <tr><td>SDK</td><td>使用 <code>com.github.zerofancy.kmp-updater:kmp-updater-compose:v0.2.2</code>，由它传递引入核心。通过 JitPack 获取固定版本，仓库解析范围限定为 <code>com.github.zerofancy.kmp-updater</code>，不再依赖本机 Maven Local。保留手动检查，启用 SDK 的应用内下载及中文下载界面，同时保留浏览器下载。</td></tr>
   <tr><td>更新服务</td><td><code>https://zp.ntutn.top</code>，公开接口 <code>GET /api/v1/updates</code>。客户端只发送软件内部名、系统、架构和包类型。后台凭据仅用于服务管理。</td></tr>
   <tr><td>版本与目标</td><td>从当前构建的 <code>BuildConfig</code> 读取版本，<code>versionCode</code> 转为 <code>Long</code> 比较，<code>versionName</code> 用于展示。目标由 SDK 检测，支持 <code>Android / ARM64</code> 和 <code>Android / X86_64</code>，包类型固定为 <code>apk</code>。</td></tr>
-  <tr><td>界面与生命周期</td><td>由主界面的 ViewModel 持有 SDK 的 <code>UpdateController</code> 和 checker，跨旋转保留在途请求与提示。ViewModel 清理时释放 controller 并关闭 checker。<code>UpdateHost</code> 只在前台挂载。旋转和后台恢复均不重新发起查询。使用 SDK 自带的查询超时与限流处理。</td></tr>
+  <tr><td>界面与生命周期</td><td>由主界面的 ViewModel 持有 SDK 的 <code>UpdateController</code>、checker 和 Android downloader，跨旋转保留在途查询、下载与提示。ViewModel 清理时释放 controller 并关闭 downloader、checker，由 SDK 取消下载并清理临时文件。<code>UpdateHost</code> 只在前台挂载。旋转和后台恢复均不重新发起查询。使用 SDK 自带的查询超时与限流处理。</td></tr>
+  <tr><td>安装交接</td><td>宿主声明 <code>REQUEST_INSTALL_PACKAGES</code>，FileProvider 不导出，仅映射 <code>files/kmp-updater/</code>，authority 使用当前 applicationId。安装前检查规范化路径、APK 后缀、非空文件及包名与当前应用一致；系统安装器负责签名兼容性、版本和最终用户确认。只授予临时读取权限，不授予写权限。安装器或设置页无法打开时展示可重试错误；打开安装器不表示安装完成。进程死亡不自动恢复安装。</td></tr>
   <tr><td>构建兼容</td><td>检查合并 Manifest 的 <code>INTERNET</code> 权限及 Compose 依赖解析。可覆盖安装的正式签名 Release 才启用线上检查。Debug 默认仅显示版本。用 <code>-PupdateTestServer=true</code> 构建时，默认追加包名后缀 <code>.updatetest</code>，并查询设备的 <code>http://127.0.0.1:18763</code>。用 <code>adb reverse tcp:18763 tcp:18763</code> 连接电脑上的测试服务。明文查询只在 Debug 的回环地址放行，下载链接仍须使用 HTTPS。</td></tr>
 </tbody>
 </table>
@@ -101,8 +102,8 @@ footer { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 16px;
 <section aria-labelledby="publishing">
 <h2 id="publishing">4. 服务登记与发版</h2>
 <ol>
-  <li>线上软件为 <code>awell</code>（ID 8）。AWell 1.0.1（2）已发布，分发 ID 为 8，安装包 ID 为 11。Android ARM64 和 X86_64 查询均返回同一份签名 APK。</li>
-  <li>正式发版时使用 <code>top.ntutn.awell</code> 和已分发版本兼容的签名证书。核对现有发布记录及 APK 的版本号后，为新版分配严格递增的 <code>versionCode</code>。本次从带有更新入口的 <code>1.0 (1)</code> 签名包升级到 <code>1.0.1 (2)</code>。</li>
+  <li>线上软件为 <code>awell</code>（ID 8）。AWell 1.0.2（3）已发布，分发 ID 为 13，安装包 ID 为 17。历史 1.0.1（2）的分发 ID 为 8，安装包 ID 为 11。Android ARM64 和 X86_64 查询均返回同一份签名 APK。</li>
+  <li>正式发版时使用 <code>top.ntutn.awell</code> 和已分发版本兼容的签名证书。核对现有发布记录及 APK 的版本号后，为新版分配严格递增的 <code>versionCode</code>。本次从 <code>1.0.1 (2)</code> 升级到 <code>1.0.2 (3)</code>，已核对两版签名证书一致。</li>
   <li>在现有服务中发布 <code>apk</code> 分发，按 APK 实际支持的 ABI 配置 Android 目标。若同一 APK 已验证支持 ARM64 和 X86_64，可给同一个包配置两个目标。填写面向用户的纯文本发布说明，供 SDK 弹窗展示。</li>
   <li>逐个查询实际发布的目标，核对版本、下载链接、APK 的包名和签名。首次发版前，可在测试环境用两个同签名版本验证从查询到覆盖安装的路径。</li>
 </ol>
@@ -111,11 +112,14 @@ footer { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 16px;
 
 <section aria-labelledby="acceptance">
 <h2 id="acceptance">5. 验收</h2>
+<p>2026-11-15：1.0.2（3）正式签名 Release 构建、25 项单元测试及 Release lint 通过，签名与线上 1.0.1 一致。通过发布 API 上传 R2 并创建分发 13（包 17），ARM64 和 X86_64 的公开更新查询均返回新版，线上 APK 的 SHA-256 与本地一致：<code>0e1bf48bb2f3f036d8b189351be198dfed15cf8b8a0e368c48d65cb0009bf3ef</code>。</p>
+<p>2026-11-15：安装交接接入后，Debug 与设备测试 APK 构建、25 项单元测试及 lint 通过。NX888J（Android 16）使用独立包名 <code>top.ntutn.awell.installtest</code> 运行 3 项设备测试通过，覆盖只读 content URI、FileProvider 暴露范围及异包 APK 拒绝；未执行真实覆盖安装，首次安装授权往返、拒绝与系统安装器交互仍待人工验收。</p>
 <p>2026-11-07 在 NX888J（Android 16，ARM64）验证 <code>1.0 (1)</code> 手动检查、Fennec 下载、Android 安装器覆盖安装及升级后再次检查。下载文件 SHA-256 与签名包一致，首次安装时间与测试设置均保留，<code>1.0.1 (2)</code> 显示「当前已是最新版本」。X86_64 已验证线上查询。</p>
 <ol>
-  <li>按约定从 SDK 源码发布 Maven Local 后，AWell 能构建 Debug 和正式签名 Release。确认合并权限、最低 API 与包名符合设计。</li>
+  <li>通过 JitPack 解析固定 SDK 版本后，AWell 能构建 Debug 和正式签名 Release。确认合并权限、最低 API 与包名符合设计。</li>
   <li>在受支持 Android 目标上验证高版本、相同或较低版本、无匹配包、离线或超时。确认不支持的架构不发送查询。</li>
   <li>验证启动和恢复前台时无更新查询，手动检查有结果反馈。旋转、退到后台再恢复和连续点击时，检查触发和弹窗数量符合约定。</li>
+  <li>验证应用内下载的已知与未知大小进度、取消清理、失败重试、旋转和前后台切换；验证下载完成后的安装按钮、首次授权与拒绝、设置页返回和旋转、文件失效、安装器取消后重试；打开安装器不宣称已安装。下载到真实覆盖安装的完整流程仍需设备验收。</li>
   <li>在同签名测试包上验证浏览器打开链接、下载及覆盖安装。覆盖安装后核对版本、已选照片目录和壁纸设置。</li>
   <li>服务登记后检查公开 API 返回预期状态。若已有正式分发，核对每个目标返回的 APK 版本和下载链接。</li>
 </ol>
