@@ -26,11 +26,11 @@ DataStore 保存设置、最近照片和单个计时基线，并自动迁移旧�
 
 [夜间调暗 Spec](docs/specs/night-dimming.html)
 
-正式版支持 Android 7.0 及以上。在主界面底部点击“检查更新”，发现新版后可在应用内下载 APK，支持进度、取消和重试，也可使用浏览器下载。应用内下载的文件保存在私有更新目录，下载完成后点击“安装更新”，必要时开启“允许来自此来源的应用”，返回后由系统确认安装。取消授权或安装后可重试；应用不会静默安装或将打开安装器视为安装成功。[应用更新 Spec](docs/specs/app-update.html)
+正式版支持 Android 7.0 及以上。在主界面底部点击“检查更新”，发现新版后可在应用内下载 APK，也可使用浏览器下载。应用内下载支持进度、取消和重试，发布提供 SHA-256 或 SHA-512 时会校验摘要。下载完成后点击“安装更新”。首次安装如需授权，点击“打开安装权限设置”，允许后返回应用，再点一次“安装更新”，最后在 Android 系统界面确认。[应用更新 Spec](docs/specs/app-update.html)
 
 ## 验证
 
-[KMP Updater](https://github.com/zerofancy/kmp-updater) 固定使用 `v0.2.2`，由 Gradle 从 JitPack 获取，无需预先发布到 Maven Local。
+Gradle 从 JitPack 获取固定版本 `v0.3.0`。[KMP Updater](https://github.com/zerofancy/kmp-updater/releases/tag/v0.3.0)
 
 Release 默认通过系统钥匙圈签名，首次配置见 [Gradle 钥匙圈签名说明](docs/keyring-signing.html)。配置完成后直接运行 `./gradlew :app:assembleRelease`。
 

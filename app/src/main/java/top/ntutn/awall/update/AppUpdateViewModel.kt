@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import top.ntutn.awall.BuildConfig
+import top.ntutn.updater.DownloadOptions
 import top.ntutn.updater.TargetDetection
 import top.ntutn.updater.UpdateVersion
 import top.ntutn.updater.UpdaterConfig
@@ -28,7 +29,9 @@ internal class AppUpdateViewModel(application: Application) : AndroidViewModel(a
             )
         )
     }
-    private val downloader = checker?.let { createAndroidUpdateDownloader(application) }
+    private val downloader = checker?.let {
+        createAndroidUpdateDownloader(application, DownloadOptions(allowInsecureHttp = BuildConfig.DEBUG))
+    }
     val controller = downloader?.let {
         UpdateController(checkNotNull(checker), createAndroidBrowserOpener(application), it, viewModelScope)
     }

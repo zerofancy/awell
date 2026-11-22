@@ -117,7 +117,11 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     appUpdateContent = {
-                        AppUpdateSection(updates, lifecycleState.isAtLeast(Lifecycle.State.STARTED))
+                        AppUpdateSection(
+                            updates = updates,
+                            activity = this@MainActivity,
+                            foreground = lifecycleState.isAtLeast(Lifecycle.State.RESUMED),
+                        )
                     },
                 )
             }

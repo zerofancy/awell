@@ -4,9 +4,6 @@
     <string name="check_for_update">检查更新</string>
     <string name="update_unsupported">此设备暂不支持检查更新</string>
     <string name="update_download_save_hint">更新包保存在应用私有目录，下载完成后可点击安装更新，由系统确认安装。</string>
-    <string name="update_install">安装更新</string>
-    <string name="update_install_permission_denied">尚未允许安装此来源的应用。可再次点击安装更新并开启授权。</string>
-    <string name="update_install_failed">无法启动安装。请确认安装包属于当前应用且文件完整，可重试或使用浏览器下载。</string>
     <string name="wallpaper_preview_button">设置动态壁纸</string>
     <string name="wallpaper_preview_unavailable">无法打开动态壁纸预览，请检查设备是否支持动态壁纸。</string>
     <string name="wallpaper_preview_restricted">系统限制了动态壁纸预览的访问，请检查设备设置。</string>
