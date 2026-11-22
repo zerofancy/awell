@@ -44,7 +44,11 @@ fun signingPassword(name: String): String {
 
 android {
     namespace = "top.ntutn.awall"
-    compileSdk = 37
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 2
+        }
+    }
 
     defaultConfig {
         applicationId = "top.ntutn.awell"

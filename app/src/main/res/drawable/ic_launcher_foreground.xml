@@ -1,15 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
-    android:viewportHeight="108"
-    android:tint="#248C7D">
-  <group android:scaleX="2.6622"
-      android:scaleY="2.6622"
-      android:translateX="22.0536"
-      android:translateY="22.0536">
-    <path
-        android:fillColor="@android:color/white"
-        android:pathData="M21,19V5c0,-1.1 -0.9,-2 -2,-2H5c-1.1,0 -2,0.9 -2,2v14c0,1.1 0.9,2 2,2h14c1.1,0 2,-0.9 2,-2zM8.5,13.5l2.5,3.01L14.5,12l4.5,6H5l3.5,-4.5z"/>
-  </group>
+    android:viewportHeight="108">
+
+    <!-- The next wallpaper peeks out from behind the portrait photo. -->
+    <path android:pathData="M48,23.5 L74.6,28.4 Q81.1,29.6 80,36.1 L74.1,68.6 Q72.9,75.1 66.4,74 L39.8,69.1 Q33.3,67.9 34.4,61.4 L40.3,28.9 Q41.5,22.4 48,23.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="48"
+                android:startY="23"
+                android:endX="76"
+                android:endY="73"
+                android:startColor="#B0FFE4"
+                android:centerColor="#59DECD"
+                android:endColor="#4392AB" />
+        </aapt:attr>
+    </path>
+
+    <path android:pathData="M36,29 H61 Q69,29 69,37 V73 Q69,81 61,81 H36 Q28,81 28,73 V37 Q28,29 36,29 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="28"
+                android:startY="29"
+                android:endX="69"
+                android:endY="81"
+                android:startColor="#F4E9FF"
+                android:endColor="#AC93FA" />
+        </aapt:attr>
+    </path>
+
+    <group>
+        <clip-path android:pathData="M36,32.5 H61 Q65.5,32.5 65.5,37 V73 Q65.5,77.5 61,77.5 H36 Q31.5,77.5 31.5,73 V37 Q31.5,32.5 36,32.5 Z" />
+        <path android:pathData="M31.5,32.5 H65.5 V77.5 H31.5 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:startX="48"
+                    android:startY="32.5"
+                    android:endX="48"
+                    android:endY="67"
+                    android:startColor="#6353BF"
+                    android:centerColor="#9C76D2"
+                    android:endColor="#F3A9BE" />
+            </aapt:attr>
+        </path>
+        <path
+            android:fillColor="#FFE0A9"
+            android:pathData="M59.3,44.3 A5.3,5.3 0,1 1,48.7 44.3 A5.3,5.3 0,1 1,59.3 44.3 Z" />
+        <path
+            android:fillColor="#5147A1"
+            android:pathData="M31.5,63 L41,51.4 Q42.4,49.7 44,51.3 L53.1,60.5 L58.3,55.6 Q59.5,54.5 60.7,55.7 L65.5,60.4 V77.5 H31.5 Z" />
+        <path android:pathData="M31.5,68.4 C40,71.6 45.9,68.8 51.8,64.9 C57.3,61.3 62.4,61.2 65.5,62.9 V77.5 H31.5 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:startX="54"
+                    android:startY="62"
+                    android:endX="54"
+                    android:endY="77.5"
+                    android:startColor="#83EDCE"
+                    android:endColor="#3DA1B0" />
+            </aapt:attr>
+        </path>
+    </group>
 </vector>
