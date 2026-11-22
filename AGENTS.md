@@ -11,4 +11,4 @@
 - 使用 `./gradlew :app:assembleRelease` 构建签名 APK。发布前核对 APK 的包名为 `top.ntutn.awell`、签名兼容性、实际版本和支持的 ABI，并查询线上版本，保证各目标的 `versionCode` 递增。软件包类型使用 `apk`，平台使用实际支持的 Android 架构配对，填写面向用户的纯文本更新说明。
 - 通过 HTTP API 发版。以发布前缀下的 `POST /uploads` 登记文件名和字节数，直接 PUT 文件到返回的预签名 URL，再调用 `POST /uploads/{uploadId}/complete` 并确认状态为 `READY`。最后用 `POST /distributions` 一次提交全部包及更新说明，R2 包填写 `source=r2` 和 `uploadId`。保存成功后立即公开。
 - 对本服务的请求使用 `Authorization: Bearer <token>`。R2 PUT 仅带返回的上传请求头。为上传登记和分发提交分别生成小写 UUID 作为 `Idempotency-Key`，在首次发送前保存键和请求内容。超时或结果未知时以原键、原内容重试，遵守 `Retry-After`。分发首次成功返回 `201`，原请求重放返回 `200`，同键不同内容返回 `409`。
-- 完整字段、外链发布及错误处理见 [发布 API 规格](/home/zero/Project/updater-server/docs/publish-api-spec.html)。
+- 完整字段、外链发布及错误处理见本仓库的 [发布 API 使用说明](docs/publish-api.html)。

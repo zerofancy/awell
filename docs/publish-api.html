@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AWell · 发布 API 使用说明</title>
+<style>body{margin:0;background:#f2f5f7;color:#203340;font:16px/1.75 system-ui,sans-serif}main{max-width:1060px;margin:30px auto;padding:30px 38px;background:#fff;border:1px solid #dae3e9;border-radius:12px}h1{font-size:30px;line-height:1.3}h2{margin-top:32px;padding-top:14px;border-top:1px solid #dae3e9;font-size:23px}h3{font-size:18px}a{color:#00695c}p,li,td{overflow-wrap:anywhere}.meta{color:#526777;font-size:14px}nav{display:flex;flex-wrap:wrap;gap:8px 18px}.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px;margin:15px 0}th,td{text-align:left;vertical-align:top;border:1px solid #dae3e9;padding:9px 12px}th{background:#edf4f5}pre{background:#182d3c;color:#eef7fa;padding:15px;overflow-x:auto;border-radius:8px;font-size:14px}code{font-family:ui-monospace,monospace}.note{border-left:4px solid #00695c;background:#edf7f3;padding:12px 16px}@media(max-width:700px){main{margin:0;padding:20px 16px;border:0;border-radius:0}h1{font-size:25px}}</style>
+</head>
+<body><main>
+<h1>AWell · 发布 API 使用说明</h1>
+<p class="meta">协议核对日期 2026-11-15 · 本仓库的发版 agent 接入说明</p>
+<nav aria-label="文档目录"><a href="#config">本地配置</a><a href="#contract">请求与响应</a><a href="#uploads">R2 上传</a><a href="#retry">重试与错误</a><a href="#example">分发示例</a></nav>
+<section aria-labelledby="config">
+<h2 id="config">01 · 本地配置与发布入口</h2>
+<p>从仓库根目录 <code>local.properties</code> 读取 <code>updaterPublishBaseUrl</code> 和 <code>updaterPublishToken</code>。发布前缀为 <code>https://zp.ntutn.top/api/v1/publish/awell</code>，token 仅绑定软件 <code>awell</code>，具有发布和 R2 上传权限。到期时间记录在配置文件注释中。</p>
+<p>向本服务发送单个 <code>Authorization: Bearer &lt;token&gt;</code> 请求头。凭据仅供本地发版客户端使用，保存于被 Git 忽略、权限为 <code>0600</code> 的配置文件中。读取与调用时避免将 token 输出到日志或进程参数，也不得写入 APK、资源或 BuildConfig。</p>
+<p>一次分发包含 1–20 个包，各包拥有独立版本号和平台配对。提交分发后立即公开。软件、已有分发和 token 的维护入口为管理后台。构建、包名、签名和 ABI 约定见仓库根目录 <code>AGENTS.md</code>。</p>
+<p>公开更新查询为 <code>GET https://zp.ntutn.top/api/v1/updates?software=awell&amp;os=Android&amp;arch=ARM64&amp;packageType=apk</code>。将架构替换为实际目标，发布前后分别核对最高版本和下载信息。</p>
+</section>
+<section aria-labelledby="contract">
+<h2 id="contract">02 · 请求与响应</h2>
+<p>以下路径相对于 <code>/api/v1/publish/{software}</code>。<code>{software}</code> 是已有软件的精确内部名，鉴权时解析并与 token 所绑 ID 比对。</p>
+<div class="scroll"><table>
+<thead><tr><th scope="col">方法和路径</th><th scope="col">权限</th><th scope="col">成功响应</th></tr></thead>
+<tbody>
+<tr><td><code>POST /distributions</code></td><td>发布。首次提交中若含 R2 包，另需 R2 权限。</td><td><code>201</code> 新建。<code>200</code> 同键同体重放，返回首次提交回执。</td></tr>
+<tr><td><code>POST /uploads</code></td><td>发布 + R2</td><td><code>201</code> 登记。<code>200</code> 返回同一授权窗口内的原记录。</td></tr>
+<tr><td><code>GET /uploads/{uploadId}</code></td><td>发布 + R2</td><td><code>200</code> 上传状态。</td></tr>
+<tr><td><code>POST /uploads/{uploadId}/complete</code></td><td>发布 + R2</td><td><code>200</code> 已校验。<code>202</code> 已有校验在进行，按 <code>Retry-After</code> 查询状态。</td></tr>
+</tbody>
+</table></div>
+<p>路径参数和请求体承载全部业务输入。POST 接受 UTF-8 <code>application/json</code>。拒绝非法 UTF-8、畸形 JSON、重复键、未知字段及类型不匹配。分发请求上限 1 MiB，上传登记和完成请求各 16 KiB，按实际读入字节计量。登记与分发提交需要 <code>Idempotency-Key</code>，值为小写标准 UUID，每个逻辑操作单独生成。</p>
+<h3><code>POST /distributions</code> 请求字段</h3>
+<div class="scroll"><table>
+<thead><tr><th scope="col">字段</th><th scope="col">规则</th></tr></thead>
+<tbody>
+<tr><td><code>title</code></td><td>必填。去掉首尾空白后 1–100 个字符，同软件内唯一。</td></tr>
+<tr><td><code>descriptionMarkdown</code><br><code>descriptionPlainText</code></td><td>各自可省略、传 <code>null</code> 或字符串，空白按空内容保存，每项最多 10,000 个 Unicode 码点。沿用现有换行和控制字符校验，服务端按各自原文保存。</td></tr>
+<tr><td><code>packages</code></td><td>必填，1–20 项。包的 <code>name</code> 去掉首尾空白后 1–200 个字符，分发内唯一。<code>packageType</code> 为必填小写标识，匹配 <code>[a-z0-9][a-z0-9-]{0,31}</code>。</td></tr>
+<tr><td><code>packages[].versionCode</code><br><code>packages[].versionName</code></td><td>版本号为正的 64 位有符号十进制整数字符串。版本名可省略、传 <code>null</code> 或字符串，上限 100 字符，空值取版本号的十进制表示。</td></tr>
+<tr><td><code>packages[].targets</code></td><td>至少一个不重复的 <code>{"os":"Android","arch":"ARM64"}</code> 配对。系统为 <code>Windows</code>、<code>Linux</code>、<code>MacOS</code>、<code>Android</code>，架构为 <code>X86_64</code>、<code>ARM64</code>。仅按明确提交的配对保存。</td></tr>
+<tr><td><code>packages[].source</code> 为 <code>external</code></td><td>必填 <code>downloadUrl</code>，为最多 2048 字符且含主机、不含用户信息的 HTTP(S) 地址，服务端只校验格式。<code>packageSize</code> 为非负的 64 位有符号十进制整数字符串、<code>null</code> 或省略。允许可选的 <code>checksumAlgorithm</code> / <code>checksumValue</code>，规则见下文；不接受 <code>uploadId</code>。</td></tr>
+<tr><td><code>packages[].source</code> 为 <code>r2</code></td><td>必填 <code>uploadId</code>。仅接收当前 token 持有的、尚未关联且在关联期限内的 <code>READY</code> 上传。下载地址、大小和 checksum 均取自上传记录的不可变快照。来源信息仅接收 <code>uploadId</code>；客户端出现 <code>downloadUrl</code>、<code>packageSize</code>、<code>checksumAlgorithm</code> 或 <code>checksumValue</code> 任一字段即返回 <code>400 INVALID_REQUEST</code>，即使值为 null 也不接受。</td></tr>
+</tbody>
+</table></div>
+<p>文本沿用现有单行和描述校验。64 位整数输入只接收 ASCII 十进制数字，防止 JSON 数值精度丢失。同软件、系统、架构、包类型、版本号的组合须唯一。API 允许一次请求混用外链与 R2 包。</p>
+<h3 id="checksum">Checksum 输入合同（2026-11-15 扩展）</h3>
+<p>每包最多一组可选 checksum，代表<strong>最终下载文件完整原始字节</strong>的发布者声明摘要。仅支持 <code>sha512</code>（SHA-512，128 位十六进制，默认）和 <code>sha256</code>（SHA-256，64 位十六进制）；不是内容实测结果，不支持 MD5、SHA-1 或算法别名。</p>
+<ul>
+<li>两字段均省略，或两字符串移除首尾 ASCII 空格、TAB、CR、LF 后均为空，表示不配置。非空值配省略或空算法时默认 <code>sha512</code>，不按摘要长度猜算法；仅算法非空而值为空则拒绝。</li>
+<li>字段出现时必须是字符串；显式 JSON null、数字、数组、对象、重复键均返回 <code>400 INVALID_REQUEST</code>。规范化前算法最多 32 字符、值最多 256 字符；去掉上述 ASCII 首尾空白后转小写，值严格为对应长度的 <code>[0-9a-f]</code>。不接受内部空白、Unicode 相似字符、<code>SHA-256</code>、<code>0x</code>、前缀、Base64 或带文件名的 shasum 输出。</li>
+<li>external 包在发布 JSON 的包对象内提交这两项；r2 包在上传登记时提交，发布时只能用 uploadId 引用，不允许覆盖。JSON API 不接收网页用的 <code>checksum_form</code> / <code>checksum_enabled</code> 开关。</li>
+<li>格式错误按既有错误协议返回，发布字段路径如 <code>packages[0].checksumValue</code>。任一包非法，整次发布失败。服务端不下载外链、不计算 R2 全文件摘要，不新增 CHECKSUM_MISMATCH 或 verified 语义。</li>
+</ul>
+<p>示例：external 包可附加 <code>"checksumAlgorithm":"sha256","checksumValue":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"</code>。该值仅演示合法格式，不声称匹配本文示例安装包。客户端应对真实下载文件自行验证。</p>
+<h3>成功回执</h3>
+<pre><code>{
+  "software": "awell",
+  "distributionId": "42",
+  "publishedAt": "2026-11-11T06:00:00Z",
+  "packages": [
+    {
+      "packageId": "105",
+      "name": "Android ARM64",
+      "downloadUrl": "https://files.example.org/awell-arm64.apk",
+      "packageSize": "1849020",
+      "checksumAlgorithm": null,
+      "checksumValue": null
+    }
+  ]
+}</code></pre>
+<p>ID、已知包大小用字符串，未知大小用 <code>null</code>，时间戳用 UTC ISO 8601。包按提交顺序返回。新建回执的每个包始终含 <code>checksumAlgorithm</code> / <code>checksumValue</code>，来自事务实际保存的包；未提供时均为 null。历史回执不重写：旧幂等键逐字返回首次保存的旧 JSON，允许缺少新字段，客户端须兼容。响应 null 不代表请求可提交 null。回执表示分发已经提交，后续网页编辑或删除后的状态以公开下载页和更新检测结果为准。</p>
+</section>
+<section aria-labelledby="uploads">
+<h2 id="uploads">03 · R2 上传</h2>
+<ol>
+<li><strong>登记。</strong> <code>POST /uploads</code> 提交 <code>{"filename":"awell-arm64.apk","size":"1849020"}</code>。成功给出 <code>uploadId</code>、<code>filename</code>、<code>status</code>、<code>expiresAt</code>、<code>completionDeadline</code>、<code>attachBefore</code>，登记响应另外给出 <code>uploadUrl</code>、<code>method</code>、<code>headers</code> 和 <code>maxFileSize</code>。登记可附加可选字符串 <code>checksumAlgorithm</code> / <code>checksumValue</code>，遵守上述统一格式合同；未配置的旧请求仍有效。创建成功、查询及 complete 的 200/201 响应均包含这两字段，未提供时均为 null；202 等待响应维持精简格式。checksum 与上传记录首次签发时一同持久化，之后不可修改，补充或更改需新上传。授权窗口内，以同一键、同一文件名、字节数及规范化后的 checksum 重试返回原记录，不延长授权；省略算法与显式 sha512 配同一摘要等价，改变算法、摘要或有无配置产生既有幂等冲突。过期后查询已知上传 ID，确认需要重新上传时使用新登记键。</li>
+<li><strong>直传。</strong> 按响应返回的 <code>PUT</code>、URL 和 <code>Content-Type: application/octet-stream</code> 将文件发送给 R2。发布 token 只发送到 updater-server，安装包文件体只发送到 R2。 <a href="https://developers.cloudflare.com/r2/api/s3/presigned-urls/#using-a-presigned-url">R2 预签名上传文档</a></li>
+<li><strong>完成校验。</strong> <code>POST /uploads/{uploadId}/complete</code> 提交 <code>{}</code>。complete 不接受补交或修改 checksum。服务端复用 HEAD 校验、源 ETag 条件复制及正式对象校验；READY 不表示 checksum 与内容相符，服务端不读取全文件、不用 ETag 代替摘要、不增加 S3 checksum 请求头或修改 PUT 的 Content-Type/CORS 约定。<code>202</code> 时按 <code>Retry-After</code> 查询状态，继续 <code>VERIFYING</code> 则退避轮询。持续等待达到校验租约上限（120 秒）或收到可重试的校验错误时，可再次提交完成请求。PUT 响应丢失时先尝试完成校验，<code>OBJECT_NOT_FOUND</code> 后可在签名有效期内补传。<code>GET</code> 与完成响应在 <code>READY</code> 或 <code>ATTACHED</code> 状态给出 <code>downloadUrl</code> 与实测 <code>size</code>，不返回预签名 URL。</li>
+<li><strong>关联。</strong> 以 <code>{"source":"r2","uploadId":"…"}</code> 指定包来源，分发提交后状态成为 <code>ATTACHED</code>。每个上传最多关联一个包。分发提交失败时，已校验上传可在期限内用于修正后的提交。</li>
+</ol>
+<p>上传记录按 token ID 隔离。登记幂等键在各 token 内独立，查询、完成校验领取租约、分发关联均核对归属。未知或其他主体的上传在查询、校验和关联时一律返回 <code>404 UPLOAD_NOT_FOUND</code>。迁移前的上传归网页管理员。网页可编辑 API 发布的分发并保留原包的既有 R2 关联，新增关联仅取网页上传。</p>
+<div class="note"><strong>期限与撤销。</strong> 沿用现有 R2 大小配置、默认 15 分钟 PUT 授权、24 小时校验截止及 7 天首次关联期限。撤销后服务端拒绝该 token 的后续请求。已经签发的 PUT URL 到期前仍可写入临时对象，已获准的校验可结束，发布仍须在提交事务中通过授权。公开桶中的正式对象可能在分发提交前即可下载。现有清理只处理临时对象，未关联的正式对象也会保留。</div>
+</section>
+<section aria-labelledby="retry">
+<h2 id="retry">04 · 重试与错误</h2>
+<h3>一次逻辑发布对应一个键和一份请求文件</h3>
+<ol>
+<li>调用方在首次发送前持久保存 UUID 和完整 JSON 文件。分发幂等域为软件 ID 和该 UUID，指纹为 UTF-8 请求体原始字节的 SHA-256。字段重排、空格或换行变化也会改变指纹。发布 checksum 的大小写、空白、算法省略等即使解析后等价，也不改变这里的原始字节幂等比较规则；与上传登记的规范化比较不同。</li>
+<li>服务端在同一 SQLite 写事务中复核 token 与软件权限，先查已成功回执，再做新发布需要的上传就绪和业务校验。回执相同则返回 <code>200</code>，可在同软件 token 轮换后确认。回执同键异体则返回 <code>409 IDEMPOTENCY_CONFLICT</code>。</li>
+<li>首次发布写入分发、全部包与平台配对、R2 关联及幂等回执，一次提交。任何写入失败整体回滚。已成功回执持久保留，分发日后被编辑或删除时，旧请求仍返回原回执，不会重建分发。回执与新建分发的发布者 token ID 一起记录。</li>
+<li>遇到断线、超时或可重试的服务端错误，以原键、原文件重试，并遵守 <code>Retry-After</code>。明确校验失败后可修正输入，内容改变时生成新键。提交结果未知时先用原请求确认，避免通过改标题或换键绕过冲突。</li>
+</ol>
+<h3>错误结构</h3>
+<pre><code>{
+  "error": {
+    "code": "VERSION_CONFLICT",
+    "message": "该更新序列已存在相同版本号",
+    "retryable": false,
+    "fields": {"packages[0].versionCode": "与现有软件包重复"}
+  }
+}</code></pre>
+<p><code>fields</code> 为 JSON 字段路径到提示的映射，无字段错误时省略。调用方按状态码、<code>code</code> 和 <code>retryable</code> 处理。下表为应用生成的响应，代理网络故障按结果未知处理。</p>
+<div class="scroll"><table>
+<thead><tr><th scope="col">HTTP</th><th scope="col">机器码或场景</th><th scope="col">调用方处理</th></tr></thead>
+<tbody>
+<tr><td>400 / 413 / 415</td><td><code>INVALID_REQUEST</code> / <code>PAYLOAD_TOO_LARGE</code>（请求体）或 <code>FILE_TOO_LARGE</code>（R2 文件）/ <code>UNSUPPORTED_MEDIA_TYPE</code></td><td>修正输入。</td></tr>
+<tr><td>401</td><td><code>UNAUTHORIZED</code>。缺失、无效、过期或已撤销的凭据，统一返回 <code>WWW-Authenticate: Bearer realm="updater-publish"</code>。</td><td>检查凭据。换 token 后仍可用原请求确认发布结果。</td></tr>
+<tr><td>403 / 404</td><td><code>FORBIDDEN</code>（软件或权限不符）/ <code>UPLOAD_NOT_FOUND</code></td><td>检查目标与授权。软件越界与不存在统一返回 403。</td></tr>
+<tr><td>409</td><td><code>IDEMPOTENCY_CONFLICT</code>、<code>DISTRIBUTION_TITLE_CONFLICT</code>、<code>VERSION_CONFLICT</code>，或上传的 <code>STATE_CONFLICT</code>、<code>OBJECT_NOT_FOUND</code>、<code>SIZE_MISMATCH</code>、<code>TYPE_MISMATCH</code>、<code>OBJECT_CHANGED</code>。</td><td>分发冲突需查明原因。R2 的 <code>OBJECT_NOT_FOUND</code> 可在文件送达后重试完成校验。</td></tr>
+<tr><td>410</td><td><code>UPLOAD_EXPIRED</code></td><td>如仍需上传，使用新登记键，更新待提交的包来源。</td></tr>
+<tr><td>429</td><td><code>RATE_LIMITED</code></td><td>等待 <code>Retry-After</code>，再重试原操作。</td></tr>
+<tr><td>500 / 502 / 503</td><td><code>INTERNAL_ERROR</code> / <code>STORAGE_ERROR</code> / <code>DATABASE_BUSY</code>、<code>STORAGE_UNAVAILABLE</code> 或 <code>UPLOAD_DISABLED</code>。</td><td>临时错误可用原键重试。<code>UPLOAD_DISABLED</code> 需处理实例配置，或在确认未提交后改用外链包。</td></tr>
+</tbody>
+</table></div>
+
+</section>
+<section aria-labelledby="example">
+<h2 id="example">05 · 外链分发请求示例</h2>
+<p>将以下内容保存为 JSON 文件，提交到 <code>updaterPublishBaseUrl</code> 下的 <code>POST /distributions</code>。版本号、标题、大小和地址均为占位示例，发版时读取实际 APK 信息。多个 APK 各占一个包，按实际支持的架构填写 targets。</p>
+<pre><code>{
+  &quot;title&quot;: &quot;示例发布&quot;,
+  &quot;descriptionMarkdown&quot;: &quot;## 本次更新\n- 更新说明&quot;,
+  &quot;descriptionPlainText&quot;: &quot;本次更新\n- 更新说明&quot;,
+  &quot;packages&quot;: [
+    {
+      &quot;name&quot;: &quot;Android ARM64&quot;,
+      &quot;packageType&quot;: &quot;apk&quot;,
+      &quot;versionCode&quot;: &quot;1&quot;,
+      &quot;versionName&quot;: &quot;示例版本&quot;,
+      &quot;targets&quot;: [
+        {
+          &quot;os&quot;: &quot;Android&quot;,
+          &quot;arch&quot;: &quot;ARM64&quot;
+        }
+      ],
+      &quot;source&quot;: &quot;external&quot;,
+      &quot;downloadUrl&quot;: &quot;https://downloads.example.org/awell-arm64.apk&quot;,
+      &quot;packageSize&quot;: &quot;123456&quot;
+    }
+  ]
+}</code></pre>
+<p>使用 R2 时先完成上传登记与校验，再把对应包的来源改为 <code>"source":"r2"</code>，填写返回的 <code>uploadId</code> 并移除外链字段及 checksum 字段。checksum 如需提供，应在上传登记时提交。向发布接口发送保存好的 UTF-8 JSON 文件，配合持久保存的 <code>Idempotency-Key</code>，以便结果未知时原样重试。</p>
+</section>
+</main></body>
+</html>
