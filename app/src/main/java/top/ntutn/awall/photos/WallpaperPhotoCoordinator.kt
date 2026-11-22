@@ -63,7 +63,7 @@ class WallpaperPhotoCoordinator(
     private val configurationJob = scope.launch {
         combine(repository.state, repository.directory) { state, source -> state to source }
             .collect { (state, source) ->
-                if (state == null || state.directoryUri != source?.uri?.toString()) return@collect
+                if (state == null || !state.matchesDirectory(source)) return@collect
                 val previous = configuration
                 val changedDirectory = previous != null && directory != source
                 val changedSettings = previous != null && !sameSettings(previous, state)
@@ -149,10 +149,10 @@ class WallpaperPhotoCoordinator(
     }
 
     private fun reconcile() {
-        if (closed || task != null || clients.none { it.ready }) return
+        if (closed || configuration == null || task != null || clients.none { it.ready }) return
         val state = repository.state.value ?: return
         val source = repository.directory.value
-        if (state.directoryUri != source?.uri?.toString()) return
+        if (!state.matchesDirectory(source)) return
         if (blocked) return
         val now = nowMillis()
         val retryRemaining = retryAtMillis?.let { (it - now).milliseconds } ?: Duration.ZERO
@@ -177,17 +177,19 @@ class WallpaperPhotoCoordinator(
         val token = requests.next()
         rotating = rotate
         task = scope.launch {
+            var savedState: WallpaperState? = null
             try {
-                var snapshot = state
-                if (needsBase) {
-                    snapshot = withContext(NonCancellable) {
+                val snapshot = if (needsBase) {
+                    withContext(NonCancellable) {
                         repository.updateState { latest ->
                             if (requests.isCurrent(token) && latest.matchesIgnoringNightDimming(state)) latest.copy(timerBaseAtMillis = now)
                             else latest
                         }
-                    }
+                    }.also { savedState = it }
+                } else state
+                if (requests.isCurrent(token) && snapshot.matchesDirectory(source)) {
+                    prepareScene(token, snapshot, source, rotate)?.let { savedState = it }
                 }
-                if (requests.isCurrent(token)) prepareScene(token, snapshot, source, rotate)
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
@@ -200,14 +202,20 @@ class WallpaperPhotoCoordinator(
                     task = null
                     committing = false
                     rotating = false
-                    scheduleNext(repository.state.value ?: state)
+                    // The observer may still hold the previous photo and timer baseline.
+                    scheduleNext(savedState ?: repository.state.value ?: state)
                 }
             }
         }
     }
 
-    private suspend fun prepareScene(token: Long, snapshot: WallpaperState, source: PhotoDirectory?, rotate: Boolean) {
-        val primary = clients.firstOrNull { it.ready } ?: return
+    private suspend fun prepareScene(
+        token: Long,
+        snapshot: WallpaperState,
+        source: PhotoDirectory?,
+        rotate: Boolean,
+    ): WallpaperState? {
+        val primary = clients.firstOrNull { it.ready } ?: return null
         val tree = source?.uri
         val current = snapshot.currentPhotoUri?.let(Uri::parse)
         val prepared = linkedMapOf<WallpaperPhotoClient, Bitmap>()
@@ -275,21 +283,21 @@ class WallpaperPhotoCoordinator(
                     }
                 }
             }
-            val result = next ?: return
+            val result = next ?: return null
             val candidate = if (!changed && scene.tree == result.tree && scene.photo == result.photo) scene else result
-            publish(token, snapshot, source, candidate, prepared, changed)
+            return publish(token, snapshot, source, candidate, prepared, changed)
         } catch (_: TimeoutCancellationException) {
             if (requests.isCurrent(token)) {
                 repository.report(tree, DirectoryStatus.RETRY)
                 retryAtMillis = nowMillis() + retryDelay.inWholeMilliseconds
-                if (currentKnownMissing) publish(token, snapshot, source, WallpaperScene(tree, null), linkedMapOf(), false)
+                if (currentKnownMissing) return publish(token, snapshot, source, WallpaperScene(tree, null), linkedMapOf(), false)
             }
         } catch (error: CancellationException) {
             throw error
         } catch (_: SecurityException) {
-            inaccessible(token, snapshot, source)
+            return inaccessible(token, snapshot, source)
         } catch (_: FileNotFoundException) {
-            inaccessible(token, snapshot, source)
+            return inaccessible(token, snapshot, source)
         } catch (_: Exception) {
             if (requests.isCurrent(token)) {
                 repository.report(tree, DirectoryStatus.RETRY)
@@ -299,13 +307,14 @@ class WallpaperPhotoCoordinator(
             prepared.values.forEach(Bitmap::recycle)
             Log.d("WallpaperPhotos", "request=$token completed current=${requests.isCurrent(token)}")
         }
+        return null
     }
 
-    private suspend fun inaccessible(token: Long, snapshot: WallpaperState, source: PhotoDirectory?) {
-        if (!requests.isCurrent(token)) return
+    private suspend fun inaccessible(token: Long, snapshot: WallpaperState, source: PhotoDirectory?): WallpaperState? {
+        if (!requests.isCurrent(token)) return null
         blocked = true
         repository.report(source?.uri, DirectoryStatus.INACCESSIBLE)
-        publish(token, snapshot, source, WallpaperScene(source?.uri, null), linkedMapOf(), false)
+        return publish(token, snapshot, source, WallpaperScene(source?.uri, null), linkedMapOf(), false)
     }
 
     private suspend fun publish(
@@ -315,12 +324,13 @@ class WallpaperPhotoCoordinator(
         next: WallpaperScene,
         prepared: MutableMap<WallpaperPhotoClient, Bitmap>,
         changed: Boolean,
-    ) {
-        if (!requests.isCurrent(token) || repository.directory.value != source || closed) return
+    ): WallpaperState? {
+        if (!requests.isCurrent(token) || !observesDirectory(source) || closed) return null
+        var savedState: WallpaperState? = null
         if (!preview && (changed || next.photo?.toString() != snapshot.currentPhotoUri)) {
             committing = true
             var accepted = false
-            withContext(NonCancellable) {
+            savedState = withContext(NonCancellable) {
                 repository.updateState { latest ->
                     val matchingState = latest.copy(backgroundStyle = snapshot.backgroundStyle)
                         .matchesIgnoringNightDimming(snapshot)
@@ -334,12 +344,12 @@ class WallpaperPhotoCoordinator(
                 }
             }
             if (requests.isCurrent(token)) committing = false
-            if (!accepted) return
+            if (!accepted) return savedState
             // The commit is durable even if lifecycle/configuration changed while it was writing.
             unlockPending = false
-            if (repository.directory.value == source) directoryPending = false
+            if (observesDirectory(source)) directoryPending = false
         }
-        if (!requests.isCurrent(token) || repository.directory.value != source || closed) return
+        if (!requests.isCurrent(token) || !observesDirectory(source) || closed) return savedState
         scene = next
         restore = false
         if (changed) {
@@ -352,10 +362,15 @@ class WallpaperPhotoCoordinator(
             if (next.photo == null || bitmap != null) client.commit(next, bitmap)
             else client.sceneChanged(next)
         }
+        return savedState
     }
+
+    private fun observesDirectory(source: PhotoDirectory?): Boolean =
+        repository.directory.value == source && repository.state.value?.matchesDirectory(source) == true
 
     private fun scheduleNext(state: WallpaperState) {
         if (closed || preview || blocked || clients.none { it.ready } || task != null) return
+        if (!state.matchesDirectory(repository.directory.value)) return
         val retry = retryAtMillis
         if (retry != null) {
             if (state.timerEnabled) schedule((retry - nowMillis()).milliseconds)
@@ -392,6 +407,9 @@ internal fun timerRemaining(state: WallpaperState, nowMillis: Long): Duration? {
 private fun sameSettings(first: WallpaperState, second: WallpaperState): Boolean =
     first.unlockEnabled == second.unlockEnabled && first.timerEnabled == second.timerEnabled &&
         first.interval == second.interval
+
+private fun WallpaperState.matchesDirectory(source: PhotoDirectory?): Boolean =
+    directoryUri == source?.uri?.toString() && (source == null || directoryRevision == source.revision)
 
 private fun WallpaperState.matchesIgnoringNightDimming(other: WallpaperState): Boolean =
     copy(nightDimmingEnabled = other.nightDimmingEnabled) == other

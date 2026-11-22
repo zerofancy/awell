@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import androidx.core.net.toUri
 import androidx.datastore.core.DataStore
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -17,10 +18,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
@@ -54,7 +56,8 @@ class PhotoDirectoryRepository internal constructor(
     private val resolver = context.contentResolver
     private val activeReaders = mutableMapOf<Uri, Int>()
     private val obsoleteGrants = mutableSetOf<Uri>()
-    private val updates = Mutex()
+    private val loadRequest = MutableStateFlow(0L)
+    private val observation = MutableStateFlow<StorageObservation?>(null)
     private val mutableState = MutableStateFlow<WallpaperState?>(null)
     override val state = mutableState.asStateFlow()
     private val mutableStorageError = MutableStateFlow(false)
@@ -66,45 +69,71 @@ class PhotoDirectoryRepository internal constructor(
 
     init {
         scope.launch {
-            try { retryLoading() }
-            catch (error: CancellationException) { throw error }
-            catch (_: Exception) { /* storageError exposes a retryable loading failure. */ }
+            loadRequest.collectLatest { request ->
+                try {
+                    dataStore.data.collect { saved -> observeState(request, saved) }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    mutableStorageError.value = true
+                    observation.value = StorageObservation(request, failure = error)
+                }
+            }
+        }.invokeOnCompletion { cause ->
+            observation.value = StorageObservation(null, failure = cause ?: CancellationException("Repository closed"))
         }
     }
 
-    /** All writes go through this repository; this Flow mirrors only confirmed DataStore values. */
-    override suspend fun updateState(transform: (WallpaperState) -> WallpaperState): WallpaperState =
-        updates.withLock {
-            try {
-                dataStore.updateData { transform(it) }.also(::acceptState)
-            } catch (error: CancellationException) { throw error }
-            catch (error: Exception) {
-                mutableStorageError.value = true
-                throw error
-            }
-        }
-
-    suspend fun retryLoading() = updates.withLock {
-        try { acceptState(dataStore.data.first()) }
-        catch (error: CancellationException) { throw error }
-        catch (error: Exception) {
+    override suspend fun updateState(transform: (WallpaperState) -> WallpaperState): WallpaperState {
+        val saved = try {
+            dataStore.updateData { transform(it) }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
             mutableStorageError.value = true
             throw error
         }
+        // A successful no-op can recover storage without causing a new DataStore emission.
+        if (storageError.value) requestReload()
+        return saved
     }
 
-    private fun acceptState(saved: WallpaperState) {
-        val oldDirectory = directory.value
+    suspend fun retryLoading() = awaitObservation(requestReload())
+
+    private fun requestReload(): Long = loadRequest.updateAndGet { request ->
+        if (observation.value?.request == request) request + 1 else request
+    }
+
+    private suspend fun awaitObservation(request: Long, minimumDirectoryRevision: Long = 0) {
+        val result = observation.filterNotNull().first {
+            it.request == null ||
+                (it.request >= request && (it.failure != null || it.directoryRevision >= minimumDirectoryRevision))
+        }
+        result.failure?.let { throw it }
+    }
+
+    private fun observeState(request: Long, saved: WallpaperState) {
+        val source = saved.directoryUri?.let {
+            PhotoDirectory(it.toUri(), saved.directoryName ?: "照片目录", saved.directoryRevision)
+        }
+        val directoryChanged = directory.value != source
+        val recoveredRead = observation.value?.failure != null
+        if (directoryChanged) {
+            mutableDirectory.value = source
+            mutableUi.value = DirectoryUiState(source,
+                if (source == null) DirectoryStatus.UNSELECTED else DirectoryStatus.SCANNING)
+        }
         mutableState.value = saved
         mutableStorageError.value = false
-        val uri = saved.directoryUri?.let(Uri::parse)
-        val name = saved.directoryName ?: "照片目录"
-        if (oldDirectory?.uri != uri || (uri != null && oldDirectory?.name != name)) {
-            mutableDirectory.value = uri?.let { PhotoDirectory(it, name, (oldDirectory?.revision ?: 0) + 1) }
-            mutableUi.value = DirectoryUiState(directory.value,
-                if (uri == null) DirectoryStatus.UNSELECTED else DirectoryStatus.SCANNING)
-        }
+        observation.value = StorageObservation(request, saved.directoryRevision)
+        if (directoryChanged || recoveredRead) synchronized(activeReaders) { releaseRetired() }
     }
+
+    private data class StorageObservation(
+        val request: Long?,
+        val directoryRevision: Long = 0,
+        val failure: Throwable? = null,
+    )
 
     suspend fun setBackgroundStyle(style: String) {
         require(style == BackgroundStyle.normalize(style))
@@ -131,29 +160,41 @@ class PhotoDirectoryRepository internal constructor(
         updateState { it.copy(intervalMillis = interval.inWholeMilliseconds) }
     }
 
-    /** Call on the main thread. Existing readers keep their old grant until they have exited. */
+    /** Existing readers keep their old grant until they have exited. */
     suspend fun select(uri: Uri, resultFlags: Int) {
         if (state.value == null) retryLoading()
-        val old = directory.value
-        val alreadyGranted = hasReadGrant(uri)
-        try {
-            require(resultFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) { "Missing read grant" }
-            resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            val name = withTimeout(PHOTO_TIMEOUT) { readRootName(uri) }
-            // Once persistence starts, finish the in-memory transition even if the Activity closes.
-            withContext(NonCancellable) {
-                updateState {
-                    it.copy(directoryUri = uri.toString(), directoryName = name, currentPhotoUri = null)
+        withDirectory(uri) {
+            val alreadyGranted = hasReadGrant(uri)
+            var persisted = false
+            try {
+                require(resultFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) { "Missing read grant" }
+                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                val name = withTimeout(PHOTO_TIMEOUT) { readRootName(uri) }
+                // Keep the new grant until the repository has observed the durable selection.
+                withContext(NonCancellable) {
+                    val selectedUri = uri.toString()
+                    var previousUri: String? = null
+                    val saved = updateState { current ->
+                        previousUri = current.directoryUri
+                        current.copy(
+                            directoryUri = selectedUri,
+                            directoryName = name,
+                            currentPhotoUri = null,
+                            // Selecting the same directory still invalidates any in-flight reads.
+                            directoryRevision = current.directoryRevision + 1,
+                        )
+                    }
+                    persisted = true
+                    try {
+                        awaitObservation(loadRequest.value, saved.directoryRevision)
+                    } finally {
+                        previousUri?.takeIf { it != selectedUri }?.let { retire(it.toUri()) }
+                    }
                 }
-                // StateFlow does not emit equal values; reselecting the same URI must invalidate readers too.
-                if (old?.uri == uri) mutableDirectory.value = directory.value!!.copy(
-                    revision = directory.value!!.revision + 1)
-                mutableUi.value = DirectoryUiState(directory.value, DirectoryStatus.SCANNING)
-                if (old != null && old.uri != uri) retire(old.uri)
+            } catch (error: Exception) {
+                if (!persisted && !alreadyGranted && directory.value?.uri != uri) retire(uri)
+                throw error
             }
-        } catch (error: Exception) {
-            if (!alreadyGranted && directory.value?.uri != uri) retire(uri)
-            throw error
         }
     }
 
@@ -186,6 +227,8 @@ class PhotoDirectoryRepository internal constructor(
     }
 
     private fun releaseRetired() {
+        // A durable selection may be newer than the displayed directory after a read failure.
+        if (observation.value?.failure != null) return
         val unused = obsoleteGrants.filter { it != directory.value?.uri && it !in activeReaders }
         unused.forEach { uri ->
             try { resolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -226,22 +269,26 @@ class PhotoDirectoryRepository internal constructor(
             catch (error: CancellationException) { throw error }
             catch (_: Exception) { return }
         }
-        val tree = directory.value?.uri ?: return
-        report(tree, DirectoryStatus.SCANNING)
+        val source = directory.value ?: return
+        val tree = source.uri
+        fun reportScan(status: DirectoryStatus, count: Int = 0, partial: Boolean = false) {
+            if (directory.value == source) mutableUi.value = DirectoryUiState(source, status, count, partial)
+        }
+        reportScan(DirectoryStatus.SCANNING)
         try {
             val result = withTimeout(PHOTO_TIMEOUT) { withDirectory(tree) { scan(tree) } }
-            report(tree, if (result.uris.isEmpty()) DirectoryStatus.EMPTY else DirectoryStatus.READY,
+            reportScan(if (result.uris.isEmpty()) DirectoryStatus.EMPTY else DirectoryStatus.READY,
                 result.uris.size, result.partial)
         } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
-            report(tree, DirectoryStatus.RETRY)
+            reportScan(DirectoryStatus.RETRY)
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (_: SecurityException) {
-            report(tree, DirectoryStatus.INACCESSIBLE)
+            reportScan(DirectoryStatus.INACCESSIBLE)
         } catch (_: FileNotFoundException) {
-            report(tree, DirectoryStatus.INACCESSIBLE)
+            reportScan(DirectoryStatus.INACCESSIBLE)
         } catch (_: Exception) {
-            report(tree, DirectoryStatus.RETRY)
+            reportScan(DirectoryStatus.RETRY)
         }
     }
 

@@ -67,7 +67,7 @@ fun MainScreen(
     onNightDimmingEnabledChanged: (Boolean) -> Unit = {},
     appUpdateContent: @Composable () -> Unit = {},
 ) {
-    val canEditSettings = wallpaperState != null && !storageError && !savingSettings && !selecting
+    val canEditSettings = wallpaperState != null && !storageError && !selecting
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) },

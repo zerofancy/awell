@@ -85,6 +85,24 @@ class WallpaperPhotoCoordinatorTest {
         assertEquals(newTree, client.commits.last().tree)
     }
 
+    @Test fun reselectingSameDirectoryWaitsForMatchingRevision() = scenario { source, coordinator, client ->
+        coordinator.attach(client)
+        await { client.commits.isNotEmpty() }
+        val original = client.commits.single()
+
+        source.directory.value = source.directory.value!!.copy(revision = 1)
+        coordinator.visibilityChanged()
+        delay(40.milliseconds)
+        assertEquals(listOf(original), client.commits)
+        assertEquals(1, source.scans)
+
+        source.state.value = source.state.value!!.copy(directoryRevision = 1, currentPhotoUri = null)
+        await { client.commits.size == 3 }
+        assertNull(client.commits[1].photo)
+        assertNotNull(client.commits.last().photo)
+        assertEquals(2, source.scans)
+    }
+
     @Test fun timedOutScanKeepsWholeOldFrame() = scenario(timeout = 80.milliseconds) { source, coordinator, client ->
         coordinator.attach(client)
         coordinator.visibilityChanged()
@@ -249,6 +267,34 @@ class WallpaperPhotoCoordinatorTest {
                 await { source.state.value!!.timerBaseAtMillis == 1_000L }
                 assertNotEquals(old, source.last)
                 assertEquals(1.seconds, withTimeout(3.seconds) { waits.receive() })
+            } finally {
+                coordinator.close()
+                scope.cancel()
+                client.close()
+            }
+        }
+    }
+
+    @Test fun rotationSchedulesFromDurableBaselineBeforeTheObserverCatchesUp() = runBlocking {
+        withContext(Dispatchers.Main) {
+            val source = FakeSource()
+            source.last = source.photos.first()
+            source.state.value = source.state.value!!.copy(timerEnabled = true, timerBaseAtMillis = 0L, intervalMillis = 1_000L)
+            source.publishWrites = false
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+            val wait = CompletableDeferred<Duration>()
+            val coordinator = WallpaperPhotoCoordinator(source, scope, nowMillis = { 10_000L }, waitForTimer = {
+                wait.complete(it)
+                awaitCancellation()
+            })
+            val client = FakeClient()
+            try {
+                coordinator.attach(client)
+                await { client.commits.isNotEmpty() }
+                assertEquals(1, source.scans)
+                assertEquals(1, source.saves)
+                assertEquals(0L, source.state.value!!.timerBaseAtMillis)
+                assertEquals(1.seconds, withTimeout(3.seconds) { wait.await() })
             } finally {
                 coordinator.close()
                 scope.cancel()
@@ -489,6 +535,8 @@ class WallpaperPhotoCoordinatorTest {
         var scanDelay = Duration.ZERO
         var partial = false
         var failWrites = false
+        var publishWrites = true
+        private var unobservedWrite: WallpaperState? = null
         var writeDelay = Duration.ZERO
         var writing = false
         override suspend fun scan(tree: Uri): DirectoryPhotos {
@@ -500,12 +548,17 @@ class WallpaperPhotoCoordinatorTest {
         override fun report(tree: Uri?, status: DirectoryStatus, count: Int, partial: Boolean) { this.status = status }
         override suspend fun updateState(transform: (WallpaperState) -> WallpaperState): WallpaperState {
             if (failWrites) throw IOException("write failure")
-            val previous = state.value!!
+            val previous = unobservedWrite ?: state.value!!
             val next = transform(previous)
             writing = true
             delay(writeDelay)
             if (next != previous) saves++
-            state.value = next
+            if (publishWrites) {
+                state.value = next
+                unobservedWrite = null
+            } else {
+                unobservedWrite = next
+            }
             writing = false
             return next
         }

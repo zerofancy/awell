@@ -19,11 +19,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -60,16 +66,36 @@ class PhotoDirectoryRepositoryTest {
         val repository = fixture.repository
         grant(root)
         repository.select(root, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val previous = repository.directory.value
         try {
             repository.select(empty, 0)
             fail("Missing read flag must fail")
         } catch (_: IllegalArgumentException) { }
-        assertEquals(root, repository.directory.value!!.uri)
+        assertEquals(previous, repository.directory.value)
         assertTrue(repository.hasReadGrant(root))
-        val oldRevision = repository.directory.value!!.revision
+    }
+
+    @Test fun reselectingUnchangedDirectoryRefreshesItsRevisionAndScan() = isolated { fixture ->
+        val repository = fixture.repository
+        grant(root)
         repository.select(root, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        assertTrue(repository.directory.value!!.revision > oldRevision)
+        repository.refresh()
+        assertEquals(DirectoryStatus.READY, repository.ui.value.status)
+        val previous = requireNotNull(repository.state.value)
+        assertNull(previous.currentPhotoUri)
+
+        repository.select(root, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val expected = previous.copy(directoryRevision = previous.directoryRevision + 1)
+        assertEquals(expected, repository.awaitState { it == expected })
+        val selected = requireNotNull(repository.directory.value)
+        assertEquals(root, selected.uri)
+        assertEquals(expected.directoryRevision, selected.revision)
+        assertEquals(DirectoryStatus.SCANNING, repository.ui.value.status)
         assertTrue(repository.hasReadGrant(root))
+        repository.refresh()
+        assertEquals(DirectoryStatus.READY, repository.ui.value.status)
+        assertEquals(3, repository.ui.value.count)
+        assertEquals(selected, fixture.reopen().directory.value)
     }
 
     @Test fun obsoleteGrantIsReleasedOnlyAfterReaderExits() = isolated { fixture ->
@@ -92,6 +118,51 @@ class PhotoDirectoryRepositoryTest {
         assertEquals(DirectoryStatus.EMPTY, repository.ui.value.status)
     }
 
+    @Test fun committedReselectionKeepsItsGrantWhileTheSubscriptionRecovers() = isolated(load = false) {
+        val owner = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val persisted = MutableStateFlow(WallpaperState())
+        var failRootRead = false
+        val store = object : DataStore<WallpaperState> {
+            override val data: Flow<WallpaperState> = flow {
+                persisted.collect { saved ->
+                    if (failRootRead && saved.directoryUri == root.toString()) throw IOException("Read failed")
+                    emit(saved)
+                }
+            }
+
+            override suspend fun updateData(transform: suspend (WallpaperState) -> WallpaperState): WallpaperState =
+                transform(persisted.value).also { persisted.value = it }
+        }
+        try {
+            val repository = PhotoDirectoryRepository(context, store, scope = owner)
+            grant(root, empty)
+            repository.select(root, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            coroutineScope {
+                val entered = CompletableDeferred<Unit>()
+                val exit = CompletableDeferred<Unit>()
+                val reader = launch { repository.withDirectory(root) { entered.complete(Unit); exit.await() } }
+                try {
+                    entered.await()
+                    repository.select(empty, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    failRootRead = true
+                    try {
+                        repository.select(root, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        fail("The observation should fail after the selection is saved")
+                    } catch (_: IOException) { }
+                    assertEquals(root.toString(), persisted.value.directoryUri)
+                    assertTrue(repository.storageError.value)
+                } finally { exit.complete(Unit) }
+                reader.join()
+            }
+            assertTrue(repository.hasReadGrant(root))
+            failRootRead = false
+            repository.retryLoading()
+            assertEquals(root, repository.directory.value?.uri)
+            assertTrue(repository.hasReadGrant(root))
+            assertFalse(repository.hasReadGrant(empty))
+        } finally { owner.coroutineContext[Job]!!.cancelAndJoin() }
+    }
+
     @Test fun revokedPermissionIsReportedAfterRestoringConfiguration() = isolated { fixture ->
         grant(root)
         fixture.repository.select(root, Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -105,21 +176,22 @@ class PhotoDirectoryRepositoryTest {
         val repository = fixture.repository
         fixture.now = 10_000
         repository.setTimerEnabled(true)
-        assertEquals(10_000L, repository.state.value!!.timerBaseAtMillis)
+        assertEquals(10_000L, repository.awaitState { it.timerEnabled }.timerBaseAtMillis)
         repository.setUnlockEnabled(false)
         repository.setInterval(15.minutes)
         fixture.now = 20_000
         repository.setTimerEnabled(true)
-        assertEquals(10_000L, repository.state.value!!.timerBaseAtMillis)
-        assertFalse(repository.state.value!!.unlockEnabled)
+        val active = repository.awaitState { !it.unlockEnabled && it.interval == 15.minutes }
+        assertEquals(10_000L, active.timerBaseAtMillis)
         repository.updateState { it.copy(currentPhotoUri = "content://photos/recent", timerBaseAtMillis = fixture.now) }
         val restored = fixture.reopen()
         assertEquals("content://photos/recent", restored.state.value!!.currentPhotoUri)
         assertEquals(20_000L, restored.state.value!!.timerBaseAtMillis)
         assertEquals(15.minutes, restored.state.value!!.interval)
         restored.setTimerEnabled(false)
-        assertNull(restored.state.value!!.timerBaseAtMillis)
-        assertFalse(restored.state.value!!.unlockEnabled)
+        val stopped = restored.awaitState { !it.timerEnabled }
+        assertNull(stopped.timerBaseAtMillis)
+        assertFalse(stopped.unlockEnabled)
     }
 
     @Test fun migratesOnlyLegacyDirectoryAndPhotoThenUsesNewRecord() = isolated(load = false) { fixture ->
@@ -130,6 +202,7 @@ class PhotoDirectoryRepositoryTest {
         assertEquals(root.toString(), migrated.directoryUri)
         assertEquals("Old photos", migrated.directoryName)
         assertEquals("content://photos/recent", migrated.currentPhotoUri)
+        assertEquals(0L, migrated.directoryRevision)
         assertTrue(migrated.unlockEnabled)
         assertFalse(migrated.timerEnabled)
         assertNull(migrated.timerBaseAtMillis)
@@ -143,32 +216,44 @@ class PhotoDirectoryRepositoryTest {
         assertEquals(migrated.currentPhotoUri, restored.state.value!!.currentPhotoUri)
     }
 
-    @Test fun concurrentSettingAndSceneWritesKeepBothChanges() = isolated { fixture ->
+    @Test fun observesWritesMadeDirectlyThroughDataStore() = isolated { fixture ->
+        val committed = fixture.dataStore.updateData { it.copy(nightDimmingEnabled = true) }
+        assertEquals(committed, fixture.repository.awaitState { it.nightDimmingEnabled })
+    }
+
+    @Test fun concurrentSettingAndSceneWritesKeepAllChanges() = isolated { fixture ->
         val repository = fixture.repository
-        kotlinx.coroutines.coroutineScope {
+        coroutineScope {
+            launch { repository.setNightDimmingEnabled(true) }
             launch { repository.setUnlockEnabled(false) }
             launch {
                 repository.updateState { it.copy(currentPhotoUri = "content://photos/committed",
                     timerEnabled = true, timerBaseAtMillis = 123_000) }
             }
         }
-        val saved = fixture.reopen().state.value!!
-        assertFalse(saved.unlockEnabled)
-        assertEquals("content://photos/committed", saved.currentPhotoUri)
+        val saved = repository.awaitState {
+            it.nightDimmingEnabled && !it.unlockEnabled && it.currentPhotoUri == "content://photos/committed"
+        }
+        assertTrue(saved.timerEnabled)
         assertEquals(123_000L, saved.timerBaseAtMillis)
+        assertEquals(saved, fixture.reopen().state.value)
     }
 
     @Test fun failedWriteDoesNotPublishPhotoOrTimerAndFailedLoadStaysUninitialized() = runBlocking {
         withContext(Dispatchers.Main) {
             val owner = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
             var failLoad = true
+            var failWrite = true
             val previous = WallpaperState(timerEnabled = true, timerBaseAtMillis = 100)
+            val persisted = MutableStateFlow(previous)
             val failingStore = object : DataStore<WallpaperState> {
                 override val data: Flow<WallpaperState> = flow {
-                    if (failLoad) throw IOException("Unavailable") else emit(previous)
+                    if (failLoad) throw IOException("Unavailable")
+                    emitAll(persisted)
                 }
                 override suspend fun updateData(transform: suspend (WallpaperState) -> WallpaperState): WallpaperState {
-                    throw IOException("Cannot persist")
+                    if (failWrite) throw IOException("Cannot persist")
+                    return transform(persisted.value).also { persisted.value = it }
                 }
             }
             try {
@@ -185,18 +270,26 @@ class PhotoDirectoryRepositoryTest {
                 } catch (_: IOException) { }
                 assertEquals(previous, repository.state.value)
                 assertTrue(repository.storageError.value)
+                failWrite = false
+                assertEquals(previous, repository.updateState { it })
+                withTimeout(3.seconds) { repository.storageError.first { !it } }
+                assertEquals(previous, repository.state.value)
+                val recovered = repository.updateState { it.copy(currentPhotoUri = "new", timerBaseAtMillis = 200) }
+                assertEquals(recovered, repository.awaitState { it.currentPhotoUri == "new" })
             } finally { owner.coroutineContext[Job]!!.cancelAndJoin() }
         }
     }
 
     @Test fun backgroundStyleSurvivesReopenWithoutChangingPhotoOrTimer() = isolated { fixture ->
         val repository = fixture.repository
-        repository.updateState { it.copy(currentPhotoUri = "content://photos/a", timerEnabled = true,
+        val old = repository.updateState { it.copy(currentPhotoUri = "content://photos/a", timerEnabled = true,
             timerBaseAtMillis = 42, unlockEnabled = false) }
-        val old = repository.state.value!!
         repository.setBackgroundStyle(BackgroundStyle.BLURRED_PHOTO)
         assertEquals(old.copy(backgroundStyle = BackgroundStyle.BLURRED_PHOTO), fixture.reopen().state.value)
     }
+
+    private suspend fun PhotoDirectoryRepository.awaitState(predicate: (WallpaperState) -> Boolean): WallpaperState =
+        withTimeout(3.seconds) { state.filterNotNull().first(predicate) }
 
     private suspend fun grant(vararg trees: Uri) {
         context.startActivity(Intent().apply {
@@ -238,13 +331,15 @@ class PhotoDirectoryRepositoryTest {
         val preferences = context.getSharedPreferences("photo_test_$id", Context.MODE_PRIVATE)
         var now = 1_000L
         lateinit var repository: PhotoDirectoryRepository
+        lateinit var dataStore: DataStore<WallpaperState>
+            private set
         private var storeScope: CoroutineScope? = null
         private var repositoryScope: CoroutineScope? = null
 
         suspend fun open(): PhotoDirectoryRepository {
             val storage = CoroutineScope(SupervisorJob() + Dispatchers.IO).also { storeScope = it }
             val owner = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).also { repositoryScope = it }
-            val dataStore = createWallpaperDataStore(context, file, storage, "photo_test_$id")
+            dataStore = createWallpaperDataStore(context, file, storage, "photo_test_$id")
             return PhotoDirectoryRepository(context, dataStore, { now }, owner).also {
                 repository = it
                 it.retryLoading()

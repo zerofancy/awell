@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,16 +48,17 @@ class MainActivity : ComponentActivity() {
                 val storageError by repository.storageError.collectAsState()
                 val scope = rememberCoroutineScope()
                 var selecting by remember { mutableStateOf(false) }
-                var savingSettings by remember { mutableStateOf(false) }
+                var pendingSettingsOperations by remember { mutableIntStateOf(0) }
                 fun saveSettings(errorMessage: Int = R.string.settings_save_failed, update: suspend () -> Unit) {
-                    if (savingSettings || selecting || wallpaperState == null || storageError) return
-                    savingSettings = true
+                    if (selecting || wallpaperState == null || storageError) return
+                    // The repository serializes writes while the settings remain interactive.
+                    pendingSettingsOperations++
                     scope.launch {
                         try { update() }
                         catch (error: CancellationException) { throw error }
                         catch (_: Exception) {
                             Toast.makeText(this@MainActivity, errorMessage, Toast.LENGTH_LONG).show()
-                        } finally { savingSettings = false }
+                        } finally { pendingSettingsOperations-- }
                     }
                 }
                 val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -82,7 +84,7 @@ class MainActivity : ComponentActivity() {
                     directoryState = state,
                     selecting = selecting,
                     wallpaperState = wallpaperState,
-                    savingSettings = savingSettings,
+                    savingSettings = pendingSettingsOperations > 0,
                     storageError = storageError,
                     onBackgroundStyleChanged = { style ->
                         saveSettings(R.string.background_save_failed) { repository.setBackgroundStyle(style) }
@@ -94,15 +96,15 @@ class MainActivity : ComponentActivity() {
                     onTimerEnabledChanged = { enabled -> saveSettings { repository.setTimerEnabled(enabled) } },
                     onIntervalChanged = { interval -> saveSettings { repository.setInterval(interval) } },
                     onRetryLoading = {
-                        if (!savingSettings && !selecting) {
-                            savingSettings = true
+                        if (pendingSettingsOperations == 0 && !selecting) {
+                            pendingSettingsOperations++
                             scope.launch {
                                 try { repository.refresh() }
                                 catch (error: CancellationException) { throw error }
                                 catch (_: Exception) {
                                     Toast.makeText(this@MainActivity, R.string.settings_load_failed, Toast.LENGTH_LONG).show()
                                 }
-                                finally { savingSettings = false }
+                                finally { pendingSettingsOperations-- }
                             }
                         }
                     },

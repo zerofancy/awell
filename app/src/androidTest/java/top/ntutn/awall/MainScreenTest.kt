@@ -97,17 +97,26 @@ class MainScreenTest {
     }
 
     @Test
-    fun settingsOnlyShowCommittedValues() {
+    fun settingsStayInteractiveDuringSaveAndShowOnlyCommittedValues() {
         var committedState by mutableStateOf(WallpaperState())
+        var saving by mutableStateOf(false)
         var requestedTimerValue: Boolean? = null
         var requestedNightDimming: Boolean? = null
+        var requestedUnlockValue: Boolean? = null
+        var directoryRequests = 0
         composeRule.setContent {
             AWallTheme {
                 MainScreen(
                     onOpenWallpaperPreview = {},
+                    onSelectDirectory = { directoryRequests++ },
                     wallpaperState = committedState,
+                    savingSettings = saving,
                     onTimerEnabledChanged = { requestedTimerValue = it },
-                    onNightDimmingEnabledChanged = { requestedNightDimming = it },
+                    onNightDimmingEnabledChanged = {
+                        requestedNightDimming = it
+                        saving = true
+                    },
+                    onUnlockEnabledChanged = { requestedUnlockValue = it },
                 )
             }
         }
@@ -120,16 +129,31 @@ class MainScreenTest {
         composeRule.onNodeWithTag("night_dimming_setting").performScrollTo().performClick().assertIsOff()
         composeRule.runOnIdle {
             assertEquals(true, requestedNightDimming)
-            committedState = committedState.copy(nightDimmingEnabled = true)
         }
-        composeRule.onNodeWithTag("night_dimming_setting").assertIsOn()
+        composeRule.onNodeWithTag("night_dimming_setting").assertIsEnabled()
+        composeRule.onNodeWithTag("unlock_setting").performScrollTo().assertIsEnabled()
+            .performClick().assertIsOn()
+        composeRule.onNodeWithTag("timer_setting").assertIsEnabled().assertIsOn()
+        composeRule.onNodeWithTag("interval_setting").assertIsEnabled()
+        composeRule.onNodeWithTag("background_random_rectangles").performScrollTo()
+            .assertIsEnabled().assertIsSelected()
+        composeRule.onNodeWithTag("background_blurred_photo").assertIsEnabled().assertIsNotSelected()
+        composeRule.onNodeWithText("选择照片目录").performScrollTo().assertIsEnabled().performClick()
+        composeRule.runOnIdle {
+            assertEquals(false, requestedUnlockValue)
+            assertEquals(1, directoryRequests)
+            committedState = committedState.copy(nightDimmingEnabled = true, unlockEnabled = false)
+            saving = false
+        }
+        composeRule.onNodeWithTag("night_dimming_setting").performScrollTo().assertIsOn()
+        composeRule.onNodeWithTag("unlock_setting").assertIsOff()
         composeRule.onNodeWithTag("timer_setting").performScrollTo().assertIsOn()
     }
 
     @Test
-    fun loadingSavingAndReadErrorsDisableEditing() {
+    fun loadingDirectorySelectionAndReadErrorsDisableEditing() {
         var state by mutableStateOf<WallpaperState?>(null)
-        var saving by mutableStateOf(false)
+        var selecting by mutableStateOf(false)
         var storageError by mutableStateOf(false)
         var retries = 0
         composeRule.setContent {
@@ -137,7 +161,7 @@ class MainScreenTest {
                 MainScreen(
                     onOpenWallpaperPreview = {},
                     wallpaperState = state,
-                    savingSettings = saving,
+                    selecting = selecting,
                     storageError = storageError,
                     onRetryLoading = { retries++ },
                 )
@@ -150,14 +174,16 @@ class MainScreenTest {
 
         composeRule.runOnIdle {
             state = WallpaperState(timerEnabled = true)
-            saving = true
+            selecting = true
         }
+        composeRule.onNodeWithText("选择照片目录").performScrollTo().assertIsNotEnabled()
         composeRule.onNodeWithTag("unlock_setting").assertIsNotEnabled()
         composeRule.onNodeWithTag("timer_setting").assertIsNotEnabled()
         composeRule.onNodeWithTag("interval_setting").assertIsNotEnabled()
+        composeRule.onNodeWithTag("night_dimming_setting").assertIsNotEnabled()
 
         composeRule.runOnIdle {
-            saving = false
+            selecting = false
             storageError = true
         }
         composeRule.onNodeWithText("暂时无法读取设置，请重试。").performScrollTo().assertIsDisplayed()
@@ -168,11 +194,11 @@ class MainScreenTest {
 
     @Test fun backgroundSelectionWaitsForPersistenceAndSupportsDisabledState() {
         var state by mutableStateOf(WallpaperState())
-        var saving by mutableStateOf(false)
+        var selecting by mutableStateOf(false)
         var requested: String? = null
         composeRule.setContent {
             AWallTheme {
-                MainScreen(onOpenWallpaperPreview = {}, wallpaperState = state, savingSettings = saving,
+                MainScreen(onOpenWallpaperPreview = {}, wallpaperState = state, selecting = selecting,
                     onBackgroundStyleChanged = { requested = it })
             }
         }
@@ -186,7 +212,7 @@ class MainScreenTest {
         }
         composeRule.onNodeWithTag("background_blurred_photo").assertIsSelected()
         composeRule.onNodeWithTag("background_random_rectangles").assertIsNotSelected()
-        composeRule.runOnIdle { saving = true }
+        composeRule.runOnIdle { selecting = true }
         composeRule.onNodeWithTag("background_blurred_photo").assertIsNotEnabled()
     }
 
