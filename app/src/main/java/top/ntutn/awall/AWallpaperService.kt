@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
 import androidx.core.content.ContextCompat
+import java.util.Calendar
 import java.util.WeakHashMap
 import kotlin.math.min
 import kotlinx.coroutines.CancellationException
@@ -75,6 +76,14 @@ class AWallpaperService : WallpaperService() {
         private var surfaceReady = false
         private var visible = false
         private var destroyed = false
+        private var nightDimmingEnabled = false
+        private var watchingNightClock = false
+        private var nightDimmed = false
+        private val nightClockReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (syncNightDimming()) drawFrame()
+            }
+        }
         private var width = 0
         private var height = 0
         override val ready: Boolean get() = visible && surfaceReady && !destroyed && width > 0 && height > 0
@@ -88,6 +97,7 @@ class AWallpaperService : WallpaperService() {
         override fun onSurfaceCreated(holder: SurfaceHolder) {
             super.onSurfaceCreated(holder)
             surfaceReady = true
+            if (syncNightDimming()) drawFrame()
             owner?.visibilityChanged()
         }
 
@@ -97,6 +107,7 @@ class AWallpaperService : WallpaperService() {
             this.width = width
             this.height = height
             surfaceReady = true
+            syncNightDimming()
             if (changed) {
                 cancelLoad()
                 frames.cancel()
@@ -109,6 +120,7 @@ class AWallpaperService : WallpaperService() {
         override fun onVisibilityChanged(visible: Boolean) {
             super.onVisibilityChanged(visible)
             this.visible = visible
+            syncNightDimming()
             if (!visible) { cancelLoad(); frames.cancel() } else {
                 frames.refreshStyle()
                 reloadCurrent()
@@ -124,6 +136,7 @@ class AWallpaperService : WallpaperService() {
 
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
             surfaceReady = false
+            syncNightDimming()
             cancelLoad()
             frames.cancel()
             owner?.visibilityChanged()
@@ -147,6 +160,11 @@ class AWallpaperService : WallpaperService() {
         }
 
         override fun backgroundStyleChanged(style: String) = frames.setStyle(style)
+
+        override fun nightDimmingChanged(enabled: Boolean) {
+            nightDimmingEnabled = enabled
+            if (syncNightDimming()) drawFrame()
+        }
 
         override fun commit(scene: WallpaperScene, bitmap: Bitmap?) {
             if (destroyed) { bitmap?.recycle(); return }
@@ -195,11 +213,33 @@ class AWallpaperService : WallpaperService() {
             load = null
         }
 
+        private fun syncNightDimming(): Boolean {
+            val watchClock = ready && nightDimmingEnabled
+            if (watchClock != watchingNightClock) {
+                if (watchClock) {
+                    val events = IntentFilter(Intent.ACTION_TIME_TICK).apply {
+                        addAction(Intent.ACTION_TIME_CHANGED)
+                        addAction(Intent.ACTION_TIMEZONE_CHANGED)
+                    }
+                    ContextCompat.registerReceiver(
+                        this@AWallpaperService, nightClockReceiver, events, ContextCompat.RECEIVER_EXPORTED,
+                    )
+                } else {
+                    unregisterReceiver(nightClockReceiver)
+                }
+                watchingNightClock = watchClock
+            }
+            val dimmed = watchClock && isNightDimmingHour(Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
+            if (nightDimmed == dimmed) return false
+            nightDimmed = dimmed
+            return true
+        }
+
         private fun drawFrame() {
             if (!ready || !surfaceHolder.surface.isValid) return
             val canvas = try { surfaceHolder.lockCanvas() } catch (_: RuntimeException) { null } ?: return
             try {
-                frames.draw(canvas)
+                frames.draw(canvas, nightDimmed)
             } finally {
                 try { surfaceHolder.unlockCanvasAndPost(canvas) } catch (_: RuntimeException) { /* Surface was removed. */ }
             }
@@ -207,6 +247,7 @@ class AWallpaperService : WallpaperService() {
 
         override fun onDestroy() {
             destroyed = true
+            syncNightDimming()
             owner?.detach(this)
             if (isPreview) owner?.close()
             scope.cancel()
@@ -219,3 +260,5 @@ class AWallpaperService : WallpaperService() {
         private const val MAX_ENGINE_ALLOWANCE = 4
     }
 }
+
+internal fun isNightDimmingHour(hourOfDay: Int): Boolean = hourOfDay >= 22 || hourOfDay < 6

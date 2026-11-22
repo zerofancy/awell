@@ -44,4 +44,6 @@
     <string name="background_blurred">模糊拉伸</string>
     <string name="background_blurred_hint">用同一张照片铺满、模糊并压暗背景</string>
     <string name="background_save_failed">背景效果保存失败，请重试。</string>
+    <string name="night_dimming">夜间调暗</string>
+    <string name="night_dimming_hint">按设备当地时间，在 22:00 至次日 06:00 调暗整幅壁纸。</string>
 </resources>

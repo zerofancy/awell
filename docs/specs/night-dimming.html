@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AWell · 夜间调暗 Spec</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #20312e;
+      --muted: #54655f;
+      --line: #dce5df;
+      --accent: #176654;
+      --soft: #edf5ef;
+      --paper: #f3f5f0;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.8 system-ui, sans-serif; }
+    main {
+      max-width: 980px;
+      margin: 32px auto;
+      padding: 36px 44px;
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+    }
+    header { padding-bottom: 18px; border-bottom: 2px solid var(--accent); }
+    h1 { margin: 5px 0 8px; font-size: clamp(30px, 4vw, 38px); line-height: 1.3; }
+    h2 { margin: 32px 0 10px; font-size: 23px; scroll-margin-top: 18px; }
+    p { margin: 8px 0; }
+    ul { margin: 8px 0; padding-left: 1.4em; }
+    li + li { margin-top: 6px; }
+    a { color: var(--accent); text-underline-offset: 3px; }
+    nav { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 18px 0; }
+    .meta, figcaption { color: var(--muted); font-size: 14px; }
+    .lead { font-size: 18px; }
+    .comparison {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin: 20px 0 12px;
+      padding: 18px;
+      border-radius: 12px;
+      background: var(--soft);
+      text-align: center;
+    }
+    figure { margin: 0; }
+    .wallpaper {
+      position: relative;
+      display: grid;
+      place-items: center;
+      width: min(100%, 144px);
+      aspect-ratio: 9 / 16;
+      overflow: hidden;
+      margin: 0 auto 6px;
+      border: 4px solid #233530;
+      border-radius: 16px;
+      background:
+        linear-gradient(#718f7c, #718f7c) 18% 18% / 44% 29% no-repeat,
+        linear-gradient(#c88460, #c88460) 100% 34% / 49% 28% no-repeat,
+        linear-gradient(#526a85, #526a85) 0 89% / 43% 41% no-repeat,
+        linear-gradient(#a47c90, #a47c90) 85% 92% / 40% 30% no-repeat,
+        #141d21;
+    }
+    .photo {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 3 / 2;
+      background: radial-gradient(circle at 70% 27%, #ffe3a6 0 9%, transparent 10%),
+        linear-gradient(#8bb5c9, #e4bf9a);
+    }
+    .photo::before, .photo::after { position: absolute; inset: 0; content: ""; }
+    .photo::before { background: #7a8e91; clip-path: polygon(0 70%, 36% 26%, 65% 69%, 82% 44%, 100% 72%, 100% 100%, 0 100%); }
+    .photo::after { background: #486d58; clip-path: polygon(0 81%, 31% 66%, 57% 80%, 77% 72%, 100% 84%, 100% 100%, 0 100%); }
+    .night::after { position: absolute; inset: 0; background: rgb(0 0 0 / 30%); content: ""; }
+    table { width: 100%; margin: 12px 0; border-collapse: collapse; }
+    th, td { padding: 9px 12px; border: 1px solid var(--line); vertical-align: top; text-align: left; }
+    th { background: var(--soft); }
+    .acceptance th:first-child { width: 23%; }
+    code { padding: 2px 4px; border-radius: 4px; background: #eff3f0; font-size: .9em; overflow-wrap: anywhere; }
+    footer { border-top: 1px solid var(--line); margin-top: 30px; padding-top: 14px; }
+    @media (max-width: 660px) {
+      main { margin: 0; padding: 22px 16px; border: 0; border-radius: 0; }
+      .comparison { padding: 12px; gap: 10px; }
+      th, td { padding: 7px 8px; }
+    }
+    @media print {
+      body { background: white; }
+      main { margin: 0; padding: 0; border: 0; max-width: none; }
+      nav { display: none; }
+      h2 { break-after: avoid; }
+      tr, .comparison { break-inside: avoid; }
+      .comparison { print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="meta">AWell · 功能 Spec · 2026-11-22</p>
+      <h1>夜间调暗</h1>
+      <p class="lead">开启后，动态壁纸在设备当地时间 22:00 至次日 06:00 整体变暗，日间恢复原始亮度。</p>
+    </header>
+    <nav aria-label="文档目录">
+      <a href="#settings">设置</a>
+      <a href="#schedule">时段与刷新</a>
+      <a href="#rendering">绘制规则</a>
+      <a href="#acceptance">验收标准</a>
+    </nav>
+
+    <h2 id="settings">设置</h2>
+    <ul>
+      <li>主页提供「夜间调暗」开关。允许在未选择照片目录时启用，适用于动态壁纸和系统预览。</li>
+      <li>新安装和升级默认关闭。DataStore 仅新增布尔字段 <code>nightDimmingEnabled</code>，旧配置缺失该字段时按关闭读取。</li>
+      <li>沿用现有设置保存流程。保存成功后应用新状态，保存失败时保留原状态并显示错误提示。</li>
+      <li>首版固定时段和遮罩强度。关闭开关后画面使用原始亮度。</li>
+    </ul>
+
+    <h2 id="schedule">时段与刷新</h2>
+    <p>22:00 开始调暗，06:00 恢复亮度。以每次读取的设备本地时刻判断，跨午夜与夏令时切换都按当时的本地时间处理。</p>
+    <table>
+      <thead><tr><th scope="col">当地时间</th><th scope="col">开关已开启时的画面</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">21:59</th><td>原始亮度</td></tr>
+        <tr><th scope="row">22:00、00:00、05:59</th><td>夜间亮度</td></tr>
+        <tr><th scope="row">06:00</th><td>原始亮度</td></tr>
+      </tbody>
+    </table>
+    <p>开关开启且壁纸可见、Surface 就绪时，Engine 监听系统分钟、改时和时区事件。每次读取当前时刻，仅在亮度状态变化时请求重绘。开关保存后立即应用，预览打开、壁纸恢复可见或 Surface 重建时也直接显示当前时段的亮度。</p>
+    <p>壁纸隐藏、Surface 销毁或开关关闭时解除监听。设备休眠时无需为夜间调暗单独唤醒。</p>
+
+    <h2 id="rendering">绘制规则</h2>
+    <p>先绘制当前背景与照片，夜间再加一层不透明度为 30% 的纯黑遮罩。该遮罩覆盖整个壁纸 Surface，包括前景、留白及透明照片下方的背景。随机矩形、模糊拉伸与无照片画面使用同一规则，纯黑像素保持纯黑。应用主题和系统屏幕亮度仍由各自的设置控制。</p>
+    <div class="comparison" role="group" aria-label="同一张壁纸在日间和夜间的亮度对照">
+      <figure>
+        <div class="wallpaper" aria-hidden="true"><div class="photo"></div></div>
+        <figcaption>日间 · 原始画面</figcaption>
+      </figure>
+      <figure>
+        <div class="wallpaper night" aria-hidden="true"><div class="photo"></div></div>
+        <figcaption>夜间 · 整帧调暗</figcaption>
+      </figure>
+    </div>
+    <ul>
+      <li>调暗或恢复亮度的重绘保留当前照片、布局、背景缓存和随机矩形。仅此操作时，源文件与换图计时基线保持原值。</li>
+      <li>因定时或解锁触发换图时，新画面提交后采用当下亮度。手动改时仍按既有定时规则独立检查是否到期或校正基线。夜间遮罩每帧只画一次，反复重绘使用同一强度。</li>
+      <li>系统预览和正式壁纸共享开关与时段规则，各自沿用原有场景，正式照片与计时仍由正式壁纸流程写入。</li>
+    </ul>
+
+    <h2 id="acceptance">验收标准</h2>
+    <table class="acceptance">
+      <thead><tr><th scope="col">场景</th><th scope="col">通过条件</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">默认值和持久化</th><td>新安装及读取旧数据时开关默认关闭。开启后重开应用或重建进程，设置可恢复。</td></tr>
+        <tr><th scope="row">时段边界</th><td>验证 21:59、22:00、00:00、05:59、06:00 的判断。跨越边界时可见画面及时换亮度。</td></tr>
+        <tr><th scope="row">时间与时区变化</th><td>在可见状态手动调整时间或切换时区，画面按调整后的本地时刻更新。</td></tr>
+        <tr><th scope="row">隐藏与恢复</th><td>熄屏或离开壁纸后跨越边界，恢复时直接显示当前亮度。预览和正式壁纸结果一致。</td></tr>
+        <tr><th scope="row">整帧视觉</th><td>随机矩形、模糊拉伸两种背景下对照同一画面的前景和留白。夜间均变暗，关闭后恢复。无照片时彩色背景同样调暗，纯黑区保持纯黑。</td></tr>
+        <tr><th scope="row">与换图配合</th><td>单独跨时段或切开关时照片 URI 和计时基线保持原值。边界与换图同时发生时，新图按当时亮度显示。</td></tr>
+      </tbody>
+    </table>
+    <p>Debug 构建、26 项单元测试和 Android 15 模拟器上的 57 项设备测试均通过。模拟器还验证了系统预览在 22:00 和 06:00 的切换、改时和切换时区后的亮度更新，以及正式壁纸隐藏后恢复的夜间画面。</p>
+
+    <footer class="meta">
+      相关规格 · <a href="blurred-photo-background.html">模糊拉伸背景</a> ·
+      <a href="scheduled-wallpaper.html">定时更换壁纸</a>
+    </footer>
+  </main>
+</body>
+</html>

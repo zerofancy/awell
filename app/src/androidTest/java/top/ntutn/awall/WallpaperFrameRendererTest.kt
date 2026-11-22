@@ -66,6 +66,37 @@ class WallpaperFrameRendererTest {
         } finally { output.recycle() }
     }
 
+    @Test fun nightDimmingOverlaysBothLayersWithoutChangingTheComposedScene() = renderTest { renderer, awaitFrame ->
+        val image = Bitmap.createBitmap(100, 50, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        val rectangles = listOf(BackgroundRectangle(0f, 0f, 1f, 1f, Color.BLUE))
+        val scene = WallpaperScene(null, Uri.parse("content://photos/red"), rectangles)
+        renderer.submit(scene, image, 100, 200)
+        awaitFrame(1)
+        val output = Bitmap.createBitmap(100, 200, Bitmap.Config.ARGB_8888)
+        try {
+            val canvas = Canvas(output)
+            renderer.draw(canvas, nightDimmed = true)
+            assertEquals(Color.rgb(0, 0, 178), output.getPixel(0, 0))
+            assertEquals(Color.rgb(178, 0, 0), output.getPixel(50, 100))
+            renderer.draw(canvas)
+            assertEquals(Color.BLUE, output.getPixel(0, 0))
+            assertEquals(Color.RED, output.getPixel(50, 100))
+
+            renderer.setStyle(BackgroundStyle.BLURRED_PHOTO)
+            awaitFrame(2)
+            renderer.draw(canvas, nightDimmed = true)
+            assertEquals(139.0, Color.red(output.getPixel(0, 0)).toDouble(), 1.0)
+            assertEquals(Color.rgb(178, 0, 0), output.getPixel(50, 100))
+            assertTrue(renderer.matches(scene, 100, 200))
+
+            renderer.setStyle(BackgroundStyle.RANDOM_RECTANGLES)
+            renderer.submit(WallpaperScene(null, null, rectangles), null, 100, 200)
+            awaitFrame(3)
+            renderer.draw(canvas, nightDimmed = true)
+            assertEquals(Color.rgb(0, 0, 178), output.getPixel(50, 100))
+        } finally { output.recycle() }
+    }
+
     @Test fun cancellationDropsOldPhotoAndNoPhotoClearsDerivedBackground() = renderTest { renderer, awaitFrame ->
         renderer.setStyle(BackgroundStyle.BLURRED_PHOTO)
         val old = Bitmap.createBitmap(120, 100, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.GREEN) }

@@ -87,6 +87,9 @@ class MainActivity : ComponentActivity() {
                     onBackgroundStyleChanged = { style ->
                         saveSettings(R.string.background_save_failed) { repository.setBackgroundStyle(style) }
                     },
+                    onNightDimmingEnabledChanged = { enabled ->
+                        saveSettings { repository.setNightDimmingEnabled(enabled) }
+                    },
                     onUnlockEnabledChanged = { enabled -> saveSettings { repository.setUnlockEnabled(enabled) } },
                     onTimerEnabledChanged = { enabled -> saveSettings { repository.setTimerEnabled(enabled) } },
                     onIntervalChanged = { interval -> saveSettings { repository.setInterval(interval) } },

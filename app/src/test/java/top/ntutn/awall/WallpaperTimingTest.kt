@@ -2,7 +2,9 @@ package top.ntutn.awall
 
 import kotlin.time.Duration.Companion.milliseconds
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import top.ntutn.awall.photos.WallpaperState
 import top.ntutn.awall.photos.timerRemaining
@@ -27,5 +29,14 @@ class WallpaperTimingTest {
     @Test fun missingOrFutureBaseUsesAFullIntervalUntilItIsRepaired() {
         assertEquals(5_000.milliseconds, timerRemaining(state.copy(timerBaseAtMillis = null), 3_000L))
         assertEquals(5_000.milliseconds, timerRemaining(state, 500L))
+    }
+
+    @Test fun nightDimmingStartsAt22AndEndsAtSixAcrossMidnight() {
+        assertFalse(isNightDimmingHour(21))
+        assertTrue(isNightDimmingHour(22))
+        assertTrue(isNightDimmingHour(23))
+        assertTrue(isNightDimmingHour(0))
+        assertTrue(isNightDimmingHour(5))
+        assertFalse(isNightDimmingHour(6))
     }
 }

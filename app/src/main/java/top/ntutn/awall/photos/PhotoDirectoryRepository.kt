@@ -111,6 +111,10 @@ class PhotoDirectoryRepository internal constructor(
         updateState { it.copy(backgroundStyle = style) }
     }
 
+    suspend fun setNightDimmingEnabled(enabled: Boolean) {
+        updateState { it.copy(nightDimmingEnabled = enabled) }
+    }
+
     suspend fun setUnlockEnabled(enabled: Boolean) {
         updateState { it.copy(unlockEnabled = enabled) }
     }

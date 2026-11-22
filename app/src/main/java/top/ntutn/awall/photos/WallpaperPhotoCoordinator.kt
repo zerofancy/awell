@@ -28,6 +28,7 @@ data class WallpaperScene(
 interface WallpaperPhotoClient {
     val ready: Boolean
     fun backgroundStyleChanged(style: String) {}
+    fun nightDimmingChanged(enabled: Boolean) {}
     suspend fun prepare(photo: Uri): Bitmap
     suspend fun prepare(photo: Uri, deadline: PreparationDeadline): Bitmap = prepare(photo)
     fun commit(scene: WallpaperScene, bitmap: Bitmap?)
@@ -69,8 +70,12 @@ class WallpaperPhotoCoordinator(
                 if (previous?.backgroundStyle != state.backgroundStyle) {
                     clients.forEach { it.backgroundStyleChanged(state.backgroundStyle) }
                 }
+                if (previous?.nightDimmingEnabled != state.nightDimmingEnabled) {
+                    clients.forEach { it.nightDimmingChanged(state.nightDimmingEnabled) }
+                }
                 configuration = state
                 directory = source
+                if (!changedDirectory && previous?.matchesIgnoringNightDimming(state) == true) return@collect
                 if (!state.unlockEnabled) unlockPending = false
                 if (changedDirectory || changedSettings) {
                     invalidate()
@@ -91,6 +96,7 @@ class WallpaperPhotoCoordinator(
     fun attach(client: WallpaperPhotoClient) {
         clients.add(client)
         client.backgroundStyleChanged(configuration?.backgroundStyle ?: BackgroundStyle.RANDOM_RECTANGLES)
+        client.nightDimmingChanged(configuration?.nightDimmingEnabled ?: false)
         client.sceneChanged(scene)
         reconcile()
     }
@@ -176,7 +182,7 @@ class WallpaperPhotoCoordinator(
                 if (needsBase) {
                     snapshot = withContext(NonCancellable) {
                         repository.updateState { latest ->
-                            if (requests.isCurrent(token) && latest == state) latest.copy(timerBaseAtMillis = now)
+                            if (requests.isCurrent(token) && latest.matchesIgnoringNightDimming(state)) latest.copy(timerBaseAtMillis = now)
                             else latest
                         }
                     }
@@ -316,7 +322,9 @@ class WallpaperPhotoCoordinator(
             var accepted = false
             withContext(NonCancellable) {
                 repository.updateState { latest ->
-                    if (requests.isCurrent(token) && latest.copy(backgroundStyle = snapshot.backgroundStyle) == snapshot && repository.directory.value == source) {
+                    val matchingState = latest.copy(backgroundStyle = snapshot.backgroundStyle)
+                        .matchesIgnoringNightDimming(snapshot)
+                    if (requests.isCurrent(token) && matchingState && repository.directory.value == source) {
                         accepted = true
                         latest.copy(
                             currentPhotoUri = next.photo?.toString(),
@@ -384,3 +392,6 @@ internal fun timerRemaining(state: WallpaperState, nowMillis: Long): Duration? {
 private fun sameSettings(first: WallpaperState, second: WallpaperState): Boolean =
     first.unlockEnabled == second.unlockEnabled && first.timerEnabled == second.timerEnabled &&
         first.interval == second.interval
+
+private fun WallpaperState.matchesIgnoringNightDimming(other: WallpaperState): Boolean =
+    copy(nightDimmingEnabled = other.nightDimmingEnabled) == other

@@ -17,6 +17,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
+private const val NIGHT_DIM_OVERLAY = 0x4D000000 // 30% black
+
 /** Owner-thread state. A pending foreground is owned here until committed or cancelled. */
 class WallpaperFrameRenderer(
     private val scope: CoroutineScope,
@@ -109,7 +111,7 @@ class WallpaperFrameRenderer(
         }
     }
 
-    fun draw(canvas: Canvas) {
+    fun draw(canvas: Canvas, nightDimmed: Boolean = false) {
         val value = scene ?: run { canvas.drawColor(Color.BLACK); return }
         paint.color = Color.WHITE
         paint.alpha = 255
@@ -125,6 +127,7 @@ class WallpaperFrameRenderer(
             paint.color = Color.WHITE
             canvas.drawBitmap(it, null, RectF(left, top, left + it.width * scale, top + it.height * scale), paint)
         }
+        if (nightDimmed) canvas.drawColor(NIGHT_DIM_OVERLAY)
     }
 
     fun cancel() {

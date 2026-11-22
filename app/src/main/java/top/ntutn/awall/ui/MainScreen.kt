@@ -64,6 +64,7 @@ fun MainScreen(
     onTimerEnabledChanged: (Boolean) -> Unit = {},
     onIntervalChanged: (Duration) -> Unit = {},
     onRetryLoading: () -> Unit = {},
+    onNightDimmingEnabledChanged: (Boolean) -> Unit = {},
     appUpdateContent: @Composable () -> Unit = {},
 ) {
     val canEditSettings = wallpaperState != null && !storageError && !savingSettings && !selecting
@@ -97,6 +98,14 @@ fun MainScreen(
                 enabled = canEditSettings,
                 onChanged = onBackgroundStyleChanged,
             )
+            SettingSwitch(
+                label = stringResource(R.string.night_dimming),
+                hint = stringResource(R.string.night_dimming_hint),
+                checked = wallpaperState?.nightDimmingEnabled ?: false,
+                enabled = canEditSettings,
+                tag = "night_dimming_setting",
+                onCheckedChange = onNightDimmingEnabledChanged,
+            )
             Text(stringResource(R.string.automatic_rotation_title), style = MaterialTheme.typography.titleMedium)
             when {
                 storageError -> {
@@ -107,14 +116,14 @@ fun MainScreen(
                 }
                 wallpaperState == null -> Text(stringResource(R.string.settings_loading))
             }
-            RotationSwitch(
+            SettingSwitch(
                 label = stringResource(R.string.rotate_on_unlock),
                 checked = wallpaperState?.unlockEnabled ?: true,
                 enabled = canEditSettings,
                 tag = "unlock_setting",
                 onCheckedChange = onUnlockEnabledChanged,
             )
-            RotationSwitch(
+            SettingSwitch(
                 label = stringResource(R.string.rotate_on_timer),
                 checked = wallpaperState?.timerEnabled ?: false,
                 enabled = canEditSettings,
@@ -159,12 +168,13 @@ private fun BackgroundSetting(style: String, enabled: Boolean, onChanged: (Strin
 }
 
 @Composable
-private fun RotationSwitch(
+private fun SettingSwitch(
     label: String,
     checked: Boolean,
     enabled: Boolean,
     tag: String,
     onCheckedChange: (Boolean) -> Unit,
+    hint: String? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().testTag(tag)
@@ -173,7 +183,10 @@ private fun RotationSwitch(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(label, modifier = Modifier.weight(1f))
+        Column(Modifier.weight(1f)) {
+            Text(label)
+            hint?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        }
         Switch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
 }

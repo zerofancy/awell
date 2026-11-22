@@ -33,6 +33,7 @@ data class WallpaperState(
     val timerEnabled: Boolean = false,
     val intervalMillis: Long = DEFAULT_INTERVAL.inWholeMilliseconds,
     val timerBaseAtMillis: Long? = null,
+    val nightDimmingEnabled: Boolean = false,
 ) {
     // Preserve the existing JSON field; business code uses the typed duration.
     val interval: Duration get() = intervalMillis.milliseconds

@@ -100,12 +100,14 @@ class MainScreenTest {
     fun settingsOnlyShowCommittedValues() {
         var committedState by mutableStateOf(WallpaperState())
         var requestedTimerValue: Boolean? = null
+        var requestedNightDimming: Boolean? = null
         composeRule.setContent {
             AWallTheme {
                 MainScreen(
                     onOpenWallpaperPreview = {},
                     wallpaperState = committedState,
                     onTimerEnabledChanged = { requestedTimerValue = it },
+                    onNightDimmingEnabledChanged = { requestedNightDimming = it },
                 )
             }
         }
@@ -115,6 +117,13 @@ class MainScreenTest {
             committedState = committedState.copy(timerEnabled = true)
         }
         composeRule.onNodeWithTag("timer_setting").assertIsOn()
+        composeRule.onNodeWithTag("night_dimming_setting").performScrollTo().performClick().assertIsOff()
+        composeRule.runOnIdle {
+            assertEquals(true, requestedNightDimming)
+            committedState = committedState.copy(nightDimmingEnabled = true)
+        }
+        composeRule.onNodeWithTag("night_dimming_setting").assertIsOn()
+        composeRule.onNodeWithTag("timer_setting").performScrollTo().assertIsOn()
     }
 
     @Test
@@ -137,6 +146,7 @@ class MainScreenTest {
         composeRule.onNodeWithTag("unlock_setting").performScrollTo().assertIsNotEnabled()
         composeRule.onNodeWithTag("timer_setting").assertIsNotEnabled()
         composeRule.onNodeWithTag("interval_setting").assertIsNotEnabled()
+        composeRule.onNodeWithTag("night_dimming_setting").performScrollTo().assertIsNotEnabled()
 
         composeRule.runOnIdle {
             state = WallpaperState(timerEnabled = true)

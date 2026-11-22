@@ -393,6 +393,42 @@ class WallpaperPhotoCoordinatorTest {
         assertEquals(BackgroundStyle.BLURRED_PHOTO, source.state.value!!.backgroundStyle)
     }
 
+    @Test fun nightDimmingOnlyChangeKeepsTheSceneAndTimerBaseline() = scenario { source, coordinator, client ->
+        source.last = source.photos.first()
+        source.state.value = source.state.value!!.copy(timerEnabled = true, timerBaseAtMillis = 5_000)
+        coordinator.attach(client)
+        await { client.commits.isNotEmpty() }
+        val original = client.commits.single()
+        val scans = source.scans
+        val dimmingEnabled = source.state.value!!.copy(nightDimmingEnabled = true)
+        source.state.value = dimmingEnabled
+        await { client.nightDimming }
+        assertEquals(scans, source.scans)
+        assertEquals(listOf(original), client.commits)
+        assertEquals(dimmingEnabled, source.state.value)
+        assertEquals(0, source.saves)
+    }
+
+    @Test fun enablingNightDimmingDuringUnlockKeepsThePreparedRotation() = scenario { source, coordinator, client ->
+        coordinator.attach(client)
+        await { client.commits.isNotEmpty() }
+        val old = source.last
+        val preparing = CompletableDeferred<Unit>()
+        val continueRotation = CompletableDeferred<Unit>()
+        client.prepareHook = {
+            preparing.complete(Unit)
+            continueRotation.await()
+        }
+        coordinator.unlocked()
+        withTimeout(2.seconds) { preparing.await() }
+        source.state.value = source.state.value!!.copy(nightDimmingEnabled = true)
+        await { client.nightDimming }
+        continueRotation.complete(Unit)
+        await { client.commits.size == 2 }
+        assertNotEquals(old, source.last)
+        assertTrue(source.state.value!!.nightDimmingEnabled)
+    }
+
     private fun scenario(
         preview: Boolean = false,
         timeout: Duration = 2.seconds,
@@ -420,6 +456,8 @@ class WallpaperPhotoCoordinatorTest {
         override var ready = true
         var style = BackgroundStyle.RANDOM_RECTANGLES
         override fun backgroundStyleChanged(style: String) { this.style = style }
+        var nightDimming = false
+        override fun nightDimmingChanged(enabled: Boolean) { nightDimming = enabled }
         var preparing = false
         var bitmap: Bitmap? = null
         var prepareHook: suspend (Uri) -> Unit = {}

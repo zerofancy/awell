@@ -12,10 +12,10 @@ import top.ntutn.awall.photos.WallpaperState
 import top.ntutn.awall.photos.WallpaperStateSerializer
 
 class WallpaperStateTest {
-    @Test fun roundTripKeepsPhotoAndTimerTogether() = runBlocking {
+    @Test fun roundTripKeepsPhotoAndSettingsTogether() = runBlocking {
         val state = WallpaperState(directoryUri = "content://photos/tree/root", directoryName = "Photos",
             currentPhotoUri = "content://photos/document/photo", unlockEnabled = false,
-            timerEnabled = true, timerBaseAtMillis = 123_456)
+            timerEnabled = true, timerBaseAtMillis = 123_456, nightDimmingEnabled = true)
         val output = ByteArrayOutputStream()
         WallpaperStateSerializer.writeTo(state, output)
         assertEquals(state, WallpaperStateSerializer.readFrom(ByteArrayInputStream(output.toByteArray())))
@@ -26,6 +26,7 @@ class WallpaperStateTest {
         assertEquals("content://photos/root", state.directoryUri)
         assertTrue(state.unlockEnabled)
         assertFalse(state.timerEnabled)
+        assertFalse(state.nightDimmingEnabled)
         assertNull(state.timerBaseAtMillis)
         assertEquals(DEFAULT_INTERVAL, state.interval)
     }
