@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AWell · 暗色微纹理与低多边形拼贴 Spec</title>
+<style>
+:root{color-scheme:light}body{margin:0;background:#f3f5f0;color:#20312e;font:16px/1.8 system-ui,sans-serif}main{max-width:940px;margin:32px auto;background:white;padding:36px;border:1px solid #dce5df;border-radius:18px}h1{line-height:1.3}h2{margin-top:30px}a{color:#176654}code{background:#edf5ef;padding:2px 5px;border-radius:4px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #dce5df;text-align:left;padding:10px}th{background:#edf5ef}.meta{font-size:14px;color:#54655f}@media(max-width:660px){main{margin:0;padding:20px;border:0;border-radius:0}}
+</style>
+</head>
+<body><main>
+<header><p class="meta">AWell · 功能 Spec · 2026-11-26</p><h1>暗色微纹理与低多边形拼贴</h1><p>两个静态、跟随照片配色的背景选项。仅衬托前景，不增加动画、边框或照片投影设置。</p></header>
+<h2>1. 设置与兼容</h2>
+<ul>
+<li>主页“背景效果”提供四种互斥选项，保留随机矩形与模糊拉伸，默认仍为随机矩形。</li>
+<li>沿用 DataStore 的 <code>backgroundStyle</code> 字段，新增稳定值 <code>dark_texture</code> 与 <code>low_poly</code>；未知值回退随机矩形，旧配置无需迁移。</li>
+<li>仅显示保存成功后的选项。保存失败保留旧状态并提示；读取失败、尚未加载及选择目录期间禁止编辑。</li>
+<li>切换背景不扫描目录、不换照片、不改变当前照片 URI、换图计时基线及解锁设置。正式壁纸与系统预览均适用，预览不写入换图历史。</li>
+</ul>
+<h2>2. 取色</h2>
+<p>在前景所有者线程上制作整张已解码照片的 64×64 有界副本，不按桌面填充裁切；后台从该副本取色，避免后台任务读取可能被释放的前景。</p>
+<ul>
+<li>每通道 3 位量化统计、按透明度加权，忽略 alpha 小于 32 的像素，避免透明区域的隐藏 RGB 污染配色。</li>
+<li>保留最多四个有明显差异的主色；不足时补充柔和明暗变体。完全透明照片使用中性蓝灰色作为取色回退。</li>
+<li>取色结果固定降饱和、适度压暗，不改变清晰前景颜色。相同解码结果的色板、颗粒和网格均可复现。</li>
+</ul>
+<h2>3. 视觉规则</h2>
+<table><thead><tr><th>效果</th><th>表现</th><th>实现约束</th></tr></thead><tbody>
+<tr><td>暗色微纹理</td><td>照片衍生深色渐变，叠加低对比度细颗粒；不使用高亮噪点。</td><td>缓存渐变画笔与 64×64 可重复纹理。纹理以 Surface 原生像素重复，不将颗粒放大至整屏，也不随重绘变化。</td></tr>
+<tr><td>低多边形拼贴</td><td>大尺寸、不规则但连续的三角形色块，照片配色统一，单色照片也有轻微明暗层次。</td><td>固定种子的网格按屏幕比例调整横纵单元数，最长方向 6 格。缓存矢量路径和画笔，保持边缘清晰；轻微重叠防止接缝露黑。不使用持续动画。</td></tr>
+</tbody></table>
+<p>两种效果都绘制在完整居中、等比显示的前景下方。透明前景可透出背景。开启夜间调暗后沿用整个合成画面叠加 30% 黑色的规则。</p>
+<h2>4. 生命周期、内存与失败</h2>
+<ul>
+<li>仅在照片、背景样式或 Surface 尺寸变化时准备配色与几何。普通重绘复用画笔、纹理和路径，不重新取色；隐藏时不持续生成画面或唤醒设备。</li>
+<li>不创建额外全屏位图；样本、像素数组和新旧纹理均小于既有背景内存预留，不增加前景解码预算。</li>
+<li>背景准备沿用照片准备的共享单调时钟截止时间，不给背景阶段重新分配完整时长。</li>
+<li>取消、快速切换背景、更换照片或 Surface 尺寸变化时，丢弃并清理过期准备结果。新背景与清晰前景一起提交，旧画面在准备完成前继续显示。</li>
+<li>没有照片时显示纯黑，不继续显示上一张照片的配色。背景生成失败、超时或内存不足时回退黑底并保留清晰前景。照片读取临时失败沿用既有保留整组旧画面的规则。</li>
+</ul>
+<h2>5. 验收</h2>
+<ul>
+<li>四种效果可选择并跨 DataStore 重开恢复；切换效果不改变当前 URI 与计时基线，设置禁用与保存后显示规则保持一致。</li>
+<li>横图、竖图、纯色图及透明图均不裁切/拉伸前景；透明区域显示新背景，不泄漏上一组画面。</li>
+<li>微纹理在大 Surface 上保持细密、低对比度；多边形覆盖所有边缘，无黑色接缝。相同输入重复绘制和重建结果一致。</li>
+<li>普通重绘不重新取色；夜间调暗同时覆盖前景与背景；过期截止时间只回退背景，不丢失清晰前景。</li>
+<li>另需人工在真实照片、目标手机及真实壁纸 Surface 上检查视觉观感、快速切换、旋转、预览隔离与进程回收恢复。模拟器测试不替代这些端到端验收。</li>
+</ul>
+<h2>6. 验证记录</h2>
+<p id="verification">2026-11-26：Debug APK 构建通过；29 项单元测试及 Android 15（API 35）x86_64 隔离模拟器上的 70 项设备测试全部通过。覆盖取色确定性、透明度权重、旧配置兼容、两种效果的设置持久化、背景切换不改变 URI / 计时、前景完整显示、夜间调暗、背景超时回退、快速切换与取消清理。lint 为 0 错误、3 条既有建议（AGP 版本升级与模糊背景 KTX 用法）。尚未进行真实手机、真实照片及系统壁纸 Surface 的人工视觉验收。</p>
+<p><a href="../../README.md">返回项目说明</a> · <a href="blurred-photo-background.html">模糊背景 Spec</a> · <a href="night-dimming.html">夜间调暗 Spec</a></p>
+</main></body></html>

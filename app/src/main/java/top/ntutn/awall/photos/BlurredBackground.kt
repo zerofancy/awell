@@ -11,13 +11,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-object BackgroundStyle {
-    const val RANDOM_RECTANGLES = "random_rectangles"
-    const val BLURRED_PHOTO = "blurred_photo"
-    fun normalize(value: String): String = if (value == BLURRED_PHOTO) value else RANDOM_RECTANGLES
-}
-
-/** Bitmap and two pixel arrays, plus old/new background caches. Reserved before photo decoding. */
+/** Covers blur's bitmap/two arrays/old-new caches, or the smaller 64² palette sample and grain tiles. */
 const val BACKGROUND_RESERVE_BYTES = 5L * 256 * 256 * 4
 
 object BlurredBackground {

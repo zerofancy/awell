@@ -40,6 +40,10 @@
     <string name="background_random_hint">用随机彩色矩形填充照片留白</string>
     <string name="background_blurred">模糊拉伸</string>
     <string name="background_blurred_hint">用同一张照片铺满、模糊并压暗背景</string>
+    <string name="background_dark_texture">暗色微纹理</string>
+    <string name="background_dark_texture_hint">提取照片主色，生成深色渐变与细微颗粒</string>
+    <string name="background_low_poly">低多边形拼贴</string>
+    <string name="background_low_poly_hint">用照片主色组成柔和、静态的三角形色块</string>
     <string name="background_save_failed">背景效果保存失败，请重试。</string>
     <string name="night_dimming">夜间调暗</string>
     <string name="night_dimming_hint">按设备当地时间，在 22:00 至次日 06:00 调暗整幅壁纸。</string>

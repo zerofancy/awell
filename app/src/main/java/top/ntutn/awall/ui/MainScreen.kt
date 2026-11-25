@@ -150,6 +150,8 @@ private fun BackgroundSetting(style: String, enabled: Boolean, onChanged: (Strin
         listOf(
             Triple(BackgroundStyle.RANDOM_RECTANGLES, R.string.background_random, R.string.background_random_hint),
             Triple(BackgroundStyle.BLURRED_PHOTO, R.string.background_blurred, R.string.background_blurred_hint),
+            Triple(BackgroundStyle.DARK_TEXTURE, R.string.background_dark_texture, R.string.background_dark_texture_hint),
+            Triple(BackgroundStyle.LOW_POLY, R.string.background_low_poly, R.string.background_low_poly_hint),
         ).forEach { (value, title, hint) ->
             Row(
                 Modifier.fillMaxWidth().testTag("background_$value")

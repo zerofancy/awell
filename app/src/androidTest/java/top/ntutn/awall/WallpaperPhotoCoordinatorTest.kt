@@ -416,13 +416,15 @@ class WallpaperPhotoCoordinatorTest {
         val old = client.commits.single()
         val scans = source.scans
         val state = source.state.value!!
-        source.state.value = state.copy(backgroundStyle = BackgroundStyle.BLURRED_PHOTO)
-        await { client.style == BackgroundStyle.BLURRED_PHOTO }
-        delay(40.milliseconds)
-        assertEquals(scans, source.scans)
-        assertEquals(listOf(old), client.commits)
-        assertEquals(state.copy(backgroundStyle = BackgroundStyle.BLURRED_PHOTO), source.state.value)
-        assertEquals(0, source.saves)
+        for (style in listOf(BackgroundStyle.BLURRED_PHOTO, BackgroundStyle.DARK_TEXTURE, BackgroundStyle.LOW_POLY)) {
+            source.state.value = state.copy(backgroundStyle = style)
+            await { client.style == style }
+            delay(40.milliseconds)
+            assertEquals(scans, source.scans)
+            assertEquals(listOf(old), client.commits)
+            assertEquals(state.copy(backgroundStyle = style), source.state.value)
+            assertEquals(0, source.saves)
+        }
     }
 
     @Test fun styleChangeDuringUnlockDoesNotSwallowPreparedRotation() = scenario { source, coordinator, client ->

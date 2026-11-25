@@ -173,6 +173,118 @@ class WallpaperFrameRendererTest {
         } finally { output.recycle() }
     }
 
+    @Test fun darkTexturePreservesForegroundAndStableScene() = verifyPhotoColorStyle(BackgroundStyle.DARK_TEXTURE)
+
+    @Test fun lowPolyPreservesForegroundAndStableScene() = verifyPhotoColorStyle(BackgroundStyle.LOW_POLY)
+
+    private fun verifyPhotoColorStyle(style: String) = renderTest { renderer, awaitFrame ->
+        val image = Bitmap.createBitmap(100, 50, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(Color.RED)
+            setPixel(50, 25, Color.TRANSPARENT)
+        }
+        val scene = WallpaperScene(null, Uri.parse("content://photos/color"),
+            listOf(BackgroundRectangle(0f, 0f, 1f, 1f, Color.BLUE)))
+        renderer.setStyle(style)
+        renderer.submit(scene, image, 100, 200)
+        awaitFrame(1)
+        val output = Bitmap.createBitmap(100, 200, Bitmap.Config.ARGB_8888)
+        try {
+            renderer.draw(Canvas(output))
+            assertEquals(Color.RED, output.getPixel(1, 100))
+            assertEquals(Color.RED, output.getPixel(98, 100))
+            assertEquals(Color.RED, output.getPixel(50, 75))
+            assertEquals(Color.RED, output.getPixel(50, 124))
+            assertEquals(255, Color.alpha(output.getPixel(50, 100)))
+            assertNotEquals(Color.RED, output.getPixel(50, 100))
+            assertNotEquals(Color.BLUE, output.getPixel(0, 0))
+            assertEquals(255, Color.alpha(output.getPixel(99, 199)))
+            val before = IntArray(100 * 200)
+            output.getPixels(before, 0, 100, 0, 0, 100, 200)
+            renderer.draw(Canvas(output))
+            val after = IntArray(before.size)
+            output.getPixels(after, 0, 100, 0, 0, 100, 200)
+            assertArrayEquals(before, after)
+            assertTrue(renderer.matches(scene, 100, 200))
+            assertFalse(image.isRecycled)
+            renderer.draw(Canvas(output), nightDimmed = true)
+            assertEquals(Color.rgb(178, 0, 0), output.getPixel(1, 100))
+            val originalBackground = before[0]
+            val dimmedBackground = output.getPixel(0, 0)
+            assertTrue(Color.red(dimmedBackground) <= Color.red(originalBackground))
+            assertTrue(Color.green(dimmedBackground) <= Color.green(originalBackground))
+            assertTrue(Color.blue(dimmedBackground) <= Color.blue(originalBackground))
+            renderer.setStyle(BackgroundStyle.RANDOM_RECTANGLES)
+            awaitFrame(2)
+            renderer.draw(Canvas(output))
+            assertEquals(Color.BLUE, output.getPixel(0, 0))
+            assertEquals(Color.RED, output.getPixel(1, 100))
+            assertFalse(image.isRecycled)
+            renderer.setStyle(style)
+            awaitFrame(3)
+            renderer.draw(Canvas(output))
+            output.getPixels(after, 0, 100, 0, 0, 100, 200)
+            assertArrayEquals(before, after)
+            renderer.submit(WallpaperScene(null, null), null, 100, 200)
+            awaitFrame(4)
+            renderer.draw(Canvas(output))
+            assertEquals(Color.BLACK, output.getPixel(0, 0))
+            assertEquals(Color.BLACK, output.getPixel(50, 100))
+            assertTrue(image.isRecycled)
+        } finally { output.recycle() }
+    }
+
+    @Test fun photoColorDeadlineFallsBackWithoutLosingForeground() {
+        for (style in listOf(BackgroundStyle.DARK_TEXTURE, BackgroundStyle.LOW_POLY)) {
+            renderTest { renderer, awaitFrame ->
+                renderer.setStyle(style)
+                val image = Bitmap.createBitmap(100, 50, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+                renderer.submit(WallpaperScene(null, Uri.parse("content://photos/a")), image, 100, 200,
+                    PreparationDeadline.after(Duration.ZERO))
+                awaitFrame(1)
+                val output = Bitmap.createBitmap(100, 200, Bitmap.Config.ARGB_8888)
+                try {
+                    renderer.draw(Canvas(output))
+                    assertEquals(Color.BLACK, output.getPixel(0, 0))
+                    assertEquals(Color.RED, output.getPixel(50, 100))
+                    assertFalse(image.isRecycled)
+                } finally { output.recycle() }
+            }
+        }
+    }
+
+    @Test fun cancelledPhotoColorPreparationAndRapidStyleChangesCannotPublishStaleFrames() {
+        for (style in listOf(BackgroundStyle.DARK_TEXTURE, BackgroundStyle.LOW_POLY)) {
+            renderTest { renderer, awaitFrame ->
+                renderer.setStyle(style)
+                val old = Bitmap.createBitmap(100, 50, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+                val image = Bitmap.createBitmap(100, 50, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLUE) }
+                val scene = WallpaperScene(null, Uri.parse("content://photos/new"),
+                    listOf(BackgroundRectangle(0f, 0f, 1f, 1f, Color.GREEN)))
+                renderer.submit(WallpaperScene(null, Uri.parse("content://photos/old")), old, 100, 200)
+                renderer.cancel()
+                renderer.submit(scene, image, 100, 200)
+                awaitFrame(1)
+                delay(30.milliseconds)
+                assertTrue(old.isRecycled)
+                assertFalse(image.isRecycled)
+                assertTrue(renderer.matches(scene, 100, 200))
+                val output = Bitmap.createBitmap(100, 200, Bitmap.Config.ARGB_8888)
+                try {
+                    renderer.draw(Canvas(output))
+                    assertEquals(Color.BLUE, output.getPixel(50, 100))
+                    // First change starts worker preparation; the second must win its final commit.
+                    renderer.setStyle(if (style == BackgroundStyle.LOW_POLY) BackgroundStyle.DARK_TEXTURE else BackgroundStyle.LOW_POLY)
+                    renderer.setStyle(BackgroundStyle.RANDOM_RECTANGLES)
+                    awaitFrame(2)
+                    renderer.draw(Canvas(output))
+                    assertEquals(Color.GREEN, output.getPixel(0, 0))
+                    assertEquals(Color.BLUE, output.getPixel(50, 100))
+                    assertFalse(image.isRecycled)
+                } finally { output.recycle() }
+            }
+        }
+    }
+
     private fun renderTest(body: suspend (WallpaperFrameRenderer, suspend (Int) -> Unit) -> Unit) = runBlocking {
         withContext(Dispatchers.Main) {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)

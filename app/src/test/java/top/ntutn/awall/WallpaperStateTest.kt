@@ -57,6 +57,16 @@ class WallpaperStateTest {
         assertEquals(state, WallpaperStateSerializer.readFrom(ByteArrayInputStream(output.toByteArray())))
     }
 
+    @Test fun photoColorBackgroundsRoundTripWithoutChangingHistoryOrSettings() = runBlocking {
+        for (style in listOf("dark_texture", "low_poly")) {
+            val state = WallpaperState(backgroundStyle = style, currentPhotoUri = "content://photos/a",
+                timerEnabled = true, timerBaseAtMillis = 42, nightDimmingEnabled = true, directoryRevision = 7)
+            val output = ByteArrayOutputStream()
+            WallpaperStateSerializer.writeTo(state, output)
+            assertEquals(state, WallpaperStateSerializer.readFrom(ByteArrayInputStream(output.toByteArray())))
+        }
+    }
+
     @Test fun typedIntervalKeepsTheExistingMillisecondJsonFormat() = runBlocking {
         val state = decode("""{"intervalMillis":900000,"timerBaseAtMillis":123456}""")
         assertEquals(15.minutes, state.interval)

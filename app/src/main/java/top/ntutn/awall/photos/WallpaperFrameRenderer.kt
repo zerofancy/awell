@@ -29,6 +29,7 @@ class WallpaperFrameRenderer(
     private var scene: WallpaperScene? = null
     private var image: Bitmap? = null
     private var background: Bitmap? = null
+    private var colorBackground: PhotoColorBackground? = null
     private var style = BackgroundStyle.RANDOM_RECTANGLES
     private var drawnStyle = style
     private var frameWidth = 0
@@ -65,35 +66,53 @@ class WallpaperFrameRenderer(
         // Start immediately so cancellation always reaches the ownership cleanup in finally.
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             var prepared: Bitmap? = null
+            var preparedColor: PhotoColorBackground? = null
             try {
                 var chosen: String
                 do {
                     prepared?.recycle()
                     prepared = null
+                    preparedColor?.close()
+                    preparedColor = null
                     chosen = style
-                    if (chosen == BackgroundStyle.BLURRED_PHOTO && candidate != null && ready()) {
+                    if (chosen != BackgroundStyle.RANDOM_RECTANGLES && candidate != null && ready()) {
                         var snapshot: Bitmap? = null
                         try {
-                            snapshot = BlurredBackground.snapshot(candidate, width, height)
+                            val photoColor = BackgroundStyle.isPhotoColor(chosen)
+                            snapshot = if (photoColor) PhotoColorBackground.snapshot(candidate)
+                                else BlurredBackground.snapshot(candidate, width, height)
                             val small = snapshot
                             val completed = withTimeoutOrNull(deadline.remaining()) {
-                                withContext(Dispatchers.Default) { BlurredBackground.blur(small) }
+                                withContext(Dispatchers.Default) {
+                                    if (photoColor) {
+                                        // Assign inside the worker so cancellation during return still reaches cleanup.
+                                        preparedColor = PhotoColorBackground.prepare(small, width, height, chosen)
+                                    } else BlurredBackground.blur(small)
+                                }
                                 true
                             } == true
-                            if (completed) { prepared = snapshot; snapshot = null }
+                            if (completed && !photoColor) { prepared = snapshot; snapshot = null }
+                            if (!completed) { preparedColor?.close(); preparedColor = null }
                         } catch (error: CancellationException) { throw error }
-                        catch (_: Exception) { Log.w("WallpaperBackground", "Using black background after preparation failure") }
-                        catch (_: OutOfMemoryError) { Log.w("WallpaperBackground", "Using black background within pixel budget") }
-                        finally { snapshot?.recycle() }
+                        catch (_: Exception) {
+                            preparedColor?.close(); preparedColor = null
+                            Log.w("WallpaperBackground", "Using black background after preparation failure")
+                        } catch (_: OutOfMemoryError) {
+                            preparedColor?.close(); preparedColor = null
+                            Log.w("WallpaperBackground", "Using black background within pixel budget")
+                        } finally { snapshot?.recycle() }
                     }
                 } while (chosen != style && ready())
                 if (token != version || (!ready() && candidate != null)) return@launch
                 val oldImage = image
                 val oldBackground = background
+                val oldColorBackground = colorBackground
                 scene = value
                 image = candidate
                 background = prepared
                 prepared = null
+                colorBackground = preparedColor
+                preparedColor = null
                 drawnStyle = chosen
                 frameWidth = width
                 frameHeight = height
@@ -103,8 +122,10 @@ class WallpaperFrameRenderer(
                 redraw()
                 if (oldImage !== candidate) oldImage?.recycle()
                 oldBackground?.recycle()
+                oldColorBackground?.close()
             } finally {
                 prepared?.recycle()
+                preparedColor?.close()
                 if (candidate !== image) candidate?.recycle()
                 if (token == version) pendingScene = null
             }
@@ -118,7 +139,8 @@ class WallpaperFrameRenderer(
         if (drawnStyle == BackgroundStyle.RANDOM_RECTANGLES) BackgroundRenderer.draw(canvas, value.background, paint)
         else {
             canvas.drawColor(Color.BLACK)
-            background?.let { canvas.drawBitmap(it, null, RectF(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat()), paint) }
+            colorBackground?.draw(canvas)
+                ?: background?.let { canvas.drawBitmap(it, null, RectF(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat()), paint) }
         }
         image?.let {
             val scale = min(canvas.width.toFloat() / it.width, canvas.height.toFloat() / it.height)
@@ -141,8 +163,10 @@ class WallpaperFrameRenderer(
         cancel()
         image?.recycle()
         background?.recycle()
+        colorBackground?.close()
         image = null
         background = null
+        colorBackground = null
         scene = null
     }
 }

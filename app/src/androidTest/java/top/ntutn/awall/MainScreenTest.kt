@@ -216,6 +216,29 @@ class MainScreenTest {
         composeRule.onNodeWithTag("background_blurred_photo").assertIsNotEnabled()
     }
 
+    @Test fun photoColorBackgroundOptionsWaitForCommittedStateAndDisableOnReadError() {
+        var state by mutableStateOf(WallpaperState())
+        var storageError by mutableStateOf(false)
+        var requested: String? = null
+        composeRule.setContent {
+            AWallTheme {
+                MainScreen(onOpenWallpaperPreview = {}, wallpaperState = state, storageError = storageError,
+                    onBackgroundStyleChanged = { requested = it })
+            }
+        }
+        for (style in listOf("dark_texture", "low_poly")) {
+            composeRule.onNodeWithTag("background_$style").performScrollTo().performClick().assertIsNotSelected()
+            composeRule.runOnIdle {
+                assertEquals(style, requested)
+                state = state.copy(backgroundStyle = style)
+            }
+            composeRule.onNodeWithTag("background_$style").assertIsSelected()
+        }
+        composeRule.runOnIdle { storageError = true }
+        composeRule.onNodeWithTag("background_dark_texture").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithTag("background_low_poly").performScrollTo().assertIsNotEnabled().assertIsSelected()
+    }
+
     private fun verifyPreviewButton(darkTheme: Boolean) {
         var previewRequests = 0
         composeRule.setContent {

@@ -284,8 +284,10 @@ class PhotoDirectoryRepositoryTest {
         val repository = fixture.repository
         val old = repository.updateState { it.copy(currentPhotoUri = "content://photos/a", timerEnabled = true,
             timerBaseAtMillis = 42, unlockEnabled = false) }
-        repository.setBackgroundStyle(BackgroundStyle.BLURRED_PHOTO)
-        assertEquals(old.copy(backgroundStyle = BackgroundStyle.BLURRED_PHOTO), fixture.reopen().state.value)
+        for (style in listOf(BackgroundStyle.BLURRED_PHOTO, BackgroundStyle.DARK_TEXTURE, BackgroundStyle.LOW_POLY)) {
+            fixture.repository.setBackgroundStyle(style)
+            assertEquals(old.copy(backgroundStyle = style), fixture.reopen().state.value)
+        }
     }
 
     private suspend fun PhotoDirectoryRepository.awaitState(predicate: (WallpaperState) -> Boolean): WallpaperState =
